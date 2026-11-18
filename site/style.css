@@ -1,0 +1,55 @@
+:root {
+  --accent: {{ACCENT}};
+  --ink: #1f2328;
+  --muted: #5d6670;
+  --paper: #fbfaf7;
+  --rule: #e6e2da;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e6e1;
+    --muted: #a3a8ae;
+    --paper: #16181b;
+    --rule: #2c3035;
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0 auto;
+  max-width: 42rem;
+  padding: 0 1.25rem;
+  background: var(--paper);
+  color: var(--ink);
+  font: 1.0625rem/1.65 Georgia, "Iowan Old Style", "Times New Roman", serif;
+}
+
+a { color: var(--accent); }
+
+header.site, footer.site {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 1.5rem 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 0.95rem;
+}
+
+header.site { border-bottom: 1px solid var(--rule); }
+footer.site { border-top: 1px solid var(--rule); color: var(--muted); margin-top: 3rem; }
+
+.brand { font-weight: 700; text-decoration: none; color: var(--ink); }
+nav a { margin-left: 1rem; text-decoration: none; }
+
+h1 { font-size: 2rem; line-height: 1.2; margin: 2rem 0 0.5rem; }
+h2 { font-size: 1.25rem; margin: 1.75rem 0 0.25rem; }
+h2 a { text-decoration: none; color: var(--ink); }
+h2 a:hover { color: var(--accent); }
+
+.lede { color: var(--muted); }
+.meta { color: var(--muted); font-size: 0.85rem; margin: 0; font-family: system-ui, sans-serif; }
+
+article { padding: 0.25rem 0 0.5rem; border-bottom: 1px solid var(--rule); }

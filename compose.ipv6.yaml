@@ -1,0 +1,29 @@
+# Overlay applied by ./burrowrs when ENABLE_IPV6=true.
+#
+# The bridge network gets an IPv6 subnet, so Docker DNATs IPv6 clients
+# straight to the containers (ip6tables, the default since Docker 27) and telemt
+# sees their real addresses. Without this, Docker's userland proxy would
+# rewrite every IPv6 client to the bridge gateway address.
+services:
+  telemt:
+    ports:
+      - name: proxy6
+        target: 3128
+        published: "${PROXY_PORT}"
+        host_ip: "${BIND_ADDR6}"
+        protocol: tcp
+  decoy:
+    ports:
+      - name: http6
+        target: 8080
+        published: "${HTTP_PORT}"
+        host_ip: "${BIND_ADDR6}"
+        protocol: tcp
+
+networks:
+  edge:
+    enable_ipv6: true
+    ipam:
+      config: !override
+        - subnet: ${EDGE_SUBNET}
+        - subnet: ${EDGE_SUBNET6}

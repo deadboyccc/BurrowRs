@@ -1,0 +1,22 @@
+# Pinned digests and hashes only stay safe if they stay current.
+version: 2
+updates:
+  - package-ecosystem: docker-compose
+    directory: "/"
+    schedule: { interval: weekly }
+    labels: [dependencies]
+
+  - package-ecosystem: docker
+    directory: "/tools"
+    schedule: { interval: weekly }
+    labels: [dependencies]
+
+  - package-ecosystem: pip
+    directory: "/tools"
+    schedule: { interval: weekly }
+    labels: [dependencies]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }
+    labels: [dependencies]

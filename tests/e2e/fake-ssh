@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# A stand-in for ssh in tests: drops the options and the target, then runs the
+# remote command on this machine. Lets `burrowrs deploy` run end to end against
+# a local "server" directory.
+set -Eeuo pipefail
+
+while (($#)); do
+	case $1 in
+	-O) exit 0 ;; # ControlMaster commands such as "-O exit"
+	-p | -o | -i | -l) shift 2 ;;
+	-*) shift ;;
+	*) break ;;
+	esac
+done
+shift # user@host
+exec bash -c "$*"

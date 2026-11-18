@@ -1,0 +1,1463 @@
+#!/usr/bin/env bash
+# burrowrs: your own stealthy, shareable Telegram proxy.  ./burrowrs help
+#
+# Copyright (c) 2026 burrowrs contributors. MIT License.
+
+# Checked before anything else, so old shells (macOS ships bash 3.2) get a
+# readable message instead of a failing `shopt`.
+if ((BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 4))); then
+	printf 'error: bash >= 4.4 is required (found %s). On macOS: brew install bash\n' "$BASH_VERSION" >&2
+	exit 1
+fi
+
+set -Eeuo pipefail
+shopt -s inherit_errexit
+
+BURROWRS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+# shellcheck source=lib/common.sh
+source "$BURROWRS_ROOT/lib/common.sh"
+# shellcheck source=lib/validate.sh
+source "$BURROWRS_ROOT/lib/validate.sh"
+# shellcheck source=lib/secret.sh
+source "$BURROWRS_ROOT/lib/secret.sh"
+# shellcheck source=lib/users.sh
+source "$BURROWRS_ROOT/lib/users.sh"
+# shellcheck source=lib/links.sh
+source "$BURROWRS_ROOT/lib/links.sh"
+# shellcheck source=lib/config.sh
+source "$BURROWRS_ROOT/lib/config.sh"
+# shellcheck source=lib/render.sh
+source "$BURROWRS_ROOT/lib/render.sh"
+# shellcheck source=lib/compose.sh
+source "$BURROWRS_ROOT/lib/compose.sh"
+require_bash
+
+# Absolute, so compose.env and messages name the same files whatever the
+# current directory was.
+abs_path() { if [[ $1 == /* ]]; then printf '%s\n' "$1"; else printf '%s\n' "$PWD/$1"; fi; }
+ENV_FILE=$(abs_path "${BURROWRS_ENV_FILE:-$BURROWRS_ROOT/.env}")
+USERS_FILE=$(abs_path "${BURROWRS_USERS_FILE:-$(dirname "$ENV_FILE")/users.tsv}")
+STATE_DIR=$(abs_path "${BURROWRS_STATE_DIR:-$BURROWRS_ROOT/state}")
+BURROWRS_PROJECT=${BURROWRS_PROJECT:-burrowrs}
+# These paths end up quoted in compose.env and in systemd units.
+for _path in "$BURROWRS_ROOT" "$STATE_DIR" "$ENV_FILE" "$USERS_FILE"; do
+	[[ $_path != *[$'\n\r'\'\"\\]* ]] || die "unsupported characters (quotes, backslashes or newlines) in path: $(printf '%q' "$_path")"
+done
+unset _path
+[[ $BURROWRS_PROJECT =~ ^[a-z0-9][a-z0-9_-]*$ ]] || die "BURROWRS_PROJECT must be lowercase letters, digits, - and _"
+
+# Expected failures go through die() with a clear message; this reports the
+# unexpected ones. A command's own non-zero exit status (the dispatch line in
+# main) is not an "unexpected failure".
+on_error() {
+	# shellcheck disable=SC2016 # matching the literal command text
+	case $3 in
+	'"$fn" "$@"' | return*) return 0 ;;
+	esac
+	say "${C_RED}burrowrs: '$3' failed (exit $1, line $2)${C_RESET}"
+}
+trap 'on_error $? $LINENO "$BASH_COMMAND"' ERR
+
+# allow_flags "FLAGS" ARGS...: die on any argument not in FLAGS. Commands
+# never ignore what they don't understand (`uninstall --help` once ran the
+# uninstall).
+allow_flags() {
+	local allowed=" $1 " arg
+	shift
+	for arg in "$@"; do
+		[[ $allowed == *" $arg "* ]] || die "unknown argument: $(printf '%q' "$arg") (see ./burrowrs help)"
+	done
+}
+
+load_config() {
+	config_load "$ENV_FILE"
+	config_validate || die "fix the settings above in $ENV_FILE"
+}
+
+detect_public_ipv4() {
+	command -v curl >/dev/null 2>&1 || return 1
+	local url ip
+	for url in https://api.ipify.org https://ipv4.icanhazip.com; do
+		ip=$(curl -4 -fsS --max-time 5 "$url" 2>/dev/null | tr -d '[:space:]') || continue
+		is_ipv4 "$ip" && {
+			printf '%s\n' "$ip"
+			return 0
+		}
+	done
+	return 1
+}
+
+# link_for KEY FORMAT: a share link (tg or tme) for a user key.
+link_for() {
+	local secret
+	secret=$(key_link_secret "$1" "$(config_front_host)") || die "cannot build a link secret"
+	"link_$2" "$(config_link_host)" "$PROXY_PORT" "$secret"
+}
+
+print_links() {
+	say ""
+	if [[ $ACCESS_MODE == shared ]]; then
+		say "${C_BOLD}Share your proxy${C_RESET} (anyone with this link can use it):"
+	else
+		say "${C_BOLD}Your own link${C_RESET} (the owner: no limits; give users their own with ./burrowrs user add NAME):"
+	fi
+	say "  ${C_DIM}app link${C_RESET}   $(link_for "$SECRET" tg)"
+	say "  ${C_DIM}web link${C_RESET}   $(link_for "$SECRET" tme)"
+	say ""
+}
+
+# ---------------------------------------------------------------------------
+# init
+
+usage_init() {
+	cat >&2 <<'EOF'
+Usage: burrowrs init [options]
+
+  --domain NAME          stealth mode: a domain whose A record points here
+  --mode stealth|simple  default: stealth (simple if only --cover-domain is given)
+  --cover-domain NAME    simple mode: a real HTTPS site to impersonate
+  --email ADDRESS        Let's Encrypt account email (optional)
+  --ipv4 ADDRESS         public IPv4 (auto-detected if omitted)
+  --access shared|users  shared: one secret for everyone (default)
+                         users:  a name and a secret per user (./burrowrs user add)
+  --ipv6 ADDRESS         public IPv6 (informational)
+  --enable-ipv6          also listen on IPv6
+  --link-host NAME|IP    what share links point at (default: domain or IPv4)
+  --port N               public proxy port (default 443)
+  --http-port N          public HTTP port for ACME (default 80)
+  --bind ADDRESS         listen address (default 0.0.0.0)
+  --tls acme|internal    certificate source (internal = self-signed, for tests)
+  --acme-ca URL          ACME directory (e.g. Let's Encrypt staging)
+  --metrics-port N       loopback-only Prometheus port (default 3129)
+  --subnet CIDR          internal Docker subnet (default 10.204.47.0/28)
+  --force                overwrite an existing .env (new secret, old links die)
+EOF
+}
+
+cmd_init() {
+	local force=0 quiet=0
+	config_reset
+	while (($#)); do
+		case $1 in
+		--domain) DOMAIN=${2,,} && shift ;;
+		--mode) BURROWRS_MODE=$2 && shift ;;
+		--cover-domain) COVER_DOMAIN=${2,,} && shift ;;
+		--access) ACCESS_MODE=$2 && shift ;;
+		--email) ACME_EMAIL=$2 && shift ;;
+		--ipv4) PUBLIC_IPV4=$2 && shift ;;
+		--ipv6) PUBLIC_IPV6=$2 && shift ;;
+		--enable-ipv6) ENABLE_IPV6=true ;;
+		--link-host) LINK_HOST=${2,,} && shift ;;
+		--port) PROXY_PORT=$2 && shift ;;
+		--http-port) HTTP_PORT=$2 && shift ;;
+		--bind) BIND_ADDR=$2 && shift ;;
+		--tls) TLS_MODE=$2 && shift ;;
+		--acme-ca) ACME_CA=$2 && shift ;;
+		--metrics-port) METRICS_PORT=$2 && shift ;;
+		--subnet)
+			is_cidr4 "$2" || die "--subnet must be an IPv4 CIDR such as 10.203.47.0/28"
+			EDGE_SUBNET=$2 DECOY_IP=$(subnet_host "$2" 10) && shift
+			;;
+		--force) force=1 ;;
+		--quiet) quiet=1 ;;
+		-h | --help) usage_init && return 0 ;;
+		*) usage_init && die "unknown option: $1" ;;
+		esac
+		shift
+	done
+
+	if [[ -e $ENV_FILE && $force == 0 ]]; then
+		die "$ENV_FILE already exists. Re-run with --force to replace it (this generates a new secret and every shared link stops working)."
+	fi
+	if [[ -z ${BURROWRS_MODE-} && -z ${DOMAIN-} && -n ${COVER_DOMAIN-} ]]; then
+		BURROWRS_MODE=simple
+	fi
+	config_set_defaults
+
+	if [[ $BURROWRS_MODE == stealth && -z $DOMAIN ]]; then
+		die "stealth mode needs --domain: a domain you own whose A record points at this server.
+       No domain? Use your IP as a free wildcard-DNS name: --domain 203-0-113-7.sslip.io --link-host 203.0.113.7
+       Last resort: ./burrowrs init --mode simple --cover-domain <popular-https-site>"
+	fi
+	if [[ $BURROWRS_MODE == simple && -z $COVER_DOMAIN ]]; then
+		die "simple mode needs --cover-domain: a popular HTTPS site that is reachable (not blocked) where your users are."
+	fi
+	if [[ -z $PUBLIC_IPV4 ]]; then
+		if PUBLIC_IPV4=$(detect_public_ipv4); then
+			ok "detected public IPv4: $PUBLIC_IPV4"
+		else
+			PUBLIC_IPV4=''
+			warn "could not detect the public IPv4 address; set PUBLIC_IPV4 in $ENV_FILE if links need it"
+		fi
+	fi
+
+	SECRET=$(key_new)
+	config_validate || die "invalid settings (see above)"
+
+	mkdir -p "$(dirname "$ENV_FILE")"
+	config_write "$ENV_FILE"
+	ok "wrote $ENV_FILE (mode 0600, contains your secret)"
+	((quiet)) && return 0
+	say ""
+	say "Next:"
+	if [[ $BURROWRS_MODE == stealth && $TLS_MODE == acme ]]; then
+		say "  1. Point DNS:  $DOMAIN  A  ${PUBLIC_IPV4:-<server IPv4>}"
+		say "  2. Customise the decoy website: cp -r site site.local && edit site.local/"
+		say "  3. Start:      ./burrowrs up"
+	else
+		say "  ./burrowrs up"
+	fi
+	if [[ $ACCESS_MODE == users ]]; then
+		say "  Then add users:  ./burrowrs user add alice   (./burrowrs user --help)"
+	fi
+}
+
+# ---------------------------------------------------------------------------
+# lifecycle
+
+wait_ready() {
+	info "waiting for the proxy to answer FakeTLS handshakes"
+	if ! tools_in_stack probe --host telemt --port 3128 --retries 40 --retry-delay 1 --timeout 5 >/dev/null; then
+		return 1
+	fi
+	ok "proxy is up"
+	if [[ $BURROWRS_MODE == stealth ]]; then
+		local tls_args=()
+		[[ $TLS_MODE == internal ]] && tls_args=(--insecure)
+		if tools_in_stack https --host telemt --port 3128 --sni "$DOMAIN" "${tls_args[@]}" \
+			--expect-status 200 --retries 45 --retry-delay 2 --timeout 5 >/dev/null; then
+			if [[ $TLS_MODE == internal ]]; then
+				ok "decoy website answers on https://$DOMAIN (self-signed: TLS_MODE=internal)"
+			else
+				ok "decoy website answers on https://$DOMAIN with a valid certificate"
+			fi
+		else
+			warn "the decoy website has no valid certificate yet. Check DNS for $DOMAIN, open port $HTTP_PORT, then: ./burrowrs logs decoy"
+		fi
+	fi
+}
+
+# Compose identifies a stack by project name only. Starting a second burrowrs
+# (another directory) under the same name would silently take over the first
+# one's containers with a different secret.
+check_project_owner() {
+	local other
+	other=$(docker ps -a --filter "label=com.docker.compose.project=$BURROWRS_PROJECT" \
+		--format '{{.Label "com.docker.compose.project.working_dir"}}' 2>/dev/null |
+		sort -u | grep -vxF "$BURROWRS_ROOT" | head -n 1 || true)
+	[[ -z $other ]] || die "the Docker Compose project '$BURROWRS_PROJECT' belongs to another burrowrs in $other.
+       burrowrs runs one proxy per server: stop that one first (./burrowrs down there)."
+}
+
+# shellcheck disable=SC2120 # cmd_try also calls it without arguments
+cmd_up() {
+	allow_flags "--no-wait" "$@"
+	local wait=1
+	[[ ${1-} == --no-wait ]] && wait=0
+	load_config
+	require_docker
+	check_project_owner
+	render_all
+	ensure_tools_image
+	info "starting burrowrs ($BURROWRS_MODE mode, project $BURROWRS_PROJECT)"
+	compose up --detach --remove-orphans --quiet-pull
+	if ((wait == 0)); then
+		ok "started (not waiting for readiness)"
+		return 0
+	fi
+	if ! wait_ready; then
+		compose ps >&2 || true
+		compose logs --tail 40 >&2 || true
+		die "the proxy did not become ready (logs above)"
+	fi
+	print_links
+	say "Next: ./burrowrs share (QR code)   ./burrowrs smoke (full self-test)   ./burrowrs status"
+}
+
+cmd_down() {
+	allow_flags "--volumes" "$@"
+	local args=()
+	[[ ${1-} == --volumes ]] && args=(--volumes)
+	config_load "$ENV_FILE"
+	[[ -f $STATE_DIR/compose.env ]] || render_all
+	compose down --remove-orphans "${args[@]}"
+	ok "stopped"
+}
+
+cmd_restart() {
+	allow_flags "" "$@"
+	load_config
+	render_all
+	compose restart
+	wait_ready || die "the proxy did not come back"
+}
+
+cmd_logs() {
+	config_load "$ENV_FILE"
+	compose logs --tail "${BURROWRS_LOG_TAIL:-200}" "$@"
+}
+
+cmd_update() {
+	allow_flags "" "$@"
+	load_config
+	require_docker
+	render_all
+	info "pulling pinned images"
+	compose pull --quiet --ignore-buildable
+	docker build --quiet --pull --target runtime -t "$(tools_image)" "$BURROWRS_ROOT/tools" >/dev/null
+	compose up --detach --remove-orphans
+	wait_ready || die "the proxy did not become ready after the update"
+	ok "updated"
+}
+
+# ---------------------------------------------------------------------------
+# status and metrics
+
+metrics_summary() {
+	local body
+	command -v curl >/dev/null 2>&1 || return 0
+	body=$(curl -fsS --max-time 3 "http://127.0.0.1:$METRICS_PORT/metrics" 2>/dev/null) || {
+		warn "metrics endpoint 127.0.0.1:$METRICS_PORT did not answer"
+		return 0
+	}
+	awk '
+		/^telemt_user_connections_current\{/      { clients += $NF; if ($NF > 0) users++ }
+		/^telemt_user_octets_(from|to)_client_total\{/ { traffic += $NF }
+		/^telemt_connections_total /              { total = $NF }
+		/^telemt_connections_bad_total /          { bad = $NF }
+		/^telemt_upstream_connect_fail_total /    { upfail = $NF }
+		/^telemt_uptime_seconds /                 { uptime = $NF }
+		END {
+			printf "  connected now         %d connection(s), %d user(s)\n", clients, users
+			printf "  telegram traffic      %.1f MiB\n", traffic / 1048576
+			printf "  connections accepted  %d (not valid clients: %d)\n", total, bad
+			printf "  failed Telegram dials %d\n", upfail
+			printf "  up for                %dh %dm\n", uptime / 3600, (uptime % 3600) / 60
+		}' <<<"$body" >&2
+}
+
+cmd_status() {
+	allow_flags "" "$@"
+	load_config
+	require_docker
+	if [[ ! -f $STATE_DIR/compose.env ]]; then
+		warn "burrowrs has not been started here yet. Start it with: ./burrowrs up"
+		return 1
+	fi
+	info "containers"
+	compose ps >&2
+	if ! stack_running; then
+		warn "burrowrs is not running. Start it with: ./burrowrs up"
+		return 1
+	fi
+	info "health"
+	local healthy=1
+	if tools_in_stack probe --host telemt --port 3128 --timeout 5 >/dev/null; then
+		ok "FakeTLS handshake succeeds"
+	else
+		cross "FakeTLS handshake fails (see ./burrowrs logs telemt)"
+		healthy=0
+	fi
+	info "traffic since start"
+	metrics_summary
+	print_links
+	((healthy)) || return 1
+}
+
+# ---------------------------------------------------------------------------
+# sharing
+
+usage_link() {
+	cat >&2 <<'EOF'
+Usage: burrowrs link [--format all|tg|tme|secret]
+Prints share links on stdout (one per line), suitable for piping.
+shared mode: the link everyone uses. users mode: your own (owner) link;
+users' links come from ./burrowrs user link NAME.
+EOF
+}
+
+# print_key_links KEY FORMAT: links (or the ee… secret) on stdout.
+print_key_links() {
+	case $2 in
+	all) link_for "$1" tg && link_for "$1" tme ;;
+	tg | tme) link_for "$1" "$2" ;;
+	secret) key_link_secret "$1" "$(config_front_host)" ;;
+	*) die "unknown format: $2 (all, tg, tme or secret)" ;;
+	esac
+}
+
+cmd_link() {
+	local format=all
+	while (($#)); do
+		case $1 in
+		--format) format=$2 && shift ;;
+		-h | --help) usage_link && return 0 ;;
+		*) usage_link && die "unknown option: $1" ;;
+		esac
+		shift
+	done
+	load_config
+	print_key_links "$SECRET" "$format"
+}
+
+# share_key KEY FILE_STEM: QR code in the terminal, plus private PNG, SVG
+# and text copies in state/share/.
+share_key() {
+	local link dir=$STATE_DIR/share
+	link=$(link_for "$1" tme)
+	require_docker
+	ensure_tools_image
+	mkdir -p "$dir"
+	chmod 0700 "$dir"
+	umask 077
+	info "scan with your phone camera, or send the link"
+	tools_on_host qr --format terminal <<<"$link" >&2
+	tools_on_host qr --format png <<<"$link" | write_atomic "$dir/$2.png" 600
+	tools_on_host qr --format svg <<<"$link" | write_atomic "$dir/$2.svg" 600
+	printf '%s\n' "$link" | write_atomic "$dir/$2.txt" 600
+	ok "QR code saved to $dir/$2.png and .svg (private files: they contain the secret)"
+}
+
+# shellcheck disable=SC2120 # cmd_try also calls it without arguments
+cmd_share() {
+	allow_flags "" "$@"
+	load_config
+	share_key "$SECRET" burrowrs-proxy
+	print_links
+	if [[ $ACCESS_MODE == shared ]]; then
+		say "  Revoke every link at once with: ./burrowrs rotate"
+	fi
+}
+
+# confirm QUESTION: ask on a terminal; without one, refuse (callers offer --yes).
+confirm() {
+	[[ -t 0 ]] || die "refusing to $1 without a terminal; pass --yes"
+	printf '%s? [y/N] ' "${1^}" >&2
+	local answer
+	read -r answer
+	[[ $answer == [yY]* ]] || die "aborted" 0
+}
+
+# apply_users: write users.toml and wait for the running proxy to load it.
+# Users are reloaded in place, so nobody else is disconnected.
+apply_users() {
+	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && stack_running; then
+		render_users
+		if ! wait_users_applied; then
+			cross "the proxy has not loaded the new user list yet (./burrowrs logs telemt)"
+			return 1
+		fi
+		ok "applied to the running proxy (no one else was disconnected)"
+	else
+		render_users_if_rendered
+		say "  burrowrs is not running; this applies on the next ./burrowrs up"
+	fi
+}
+
+# Keep an existing state/ in step even while stopped (up re-renders anyway).
+render_users_if_rendered() {
+	[[ -d $STATE_DIR/telemt ]] && render_users
+	return 0
+}
+
+cmd_rotate() {
+	allow_flags "--yes -y" "$@"
+	local yes=0
+	[[ ${1-} == --yes || ${1-} == -y ]] && yes=1
+	load_config
+	if ((yes == 0)); then
+		if [[ $ACCESS_MODE == shared ]]; then
+			confirm "rotate the secret (the current link stops working for everyone)"
+		else
+			confirm "rotate your own (owner) secret (users keep theirs: ./burrowrs user rotate NAME)"
+		fi
+	fi
+	local old=$SECRET
+	config_set_value "$ENV_FILE" SECRET "$(key_new)"
+	load_config
+	ok "new secret written to $ENV_FILE (old: $(secret_redact "$old"))"
+	apply_users || die "the proxy has not loaded the new secret yet; check ./burrowrs logs telemt"
+	print_links
+}
+
+# ---------------------------------------------------------------------------
+# users (ACCESS_MODE=users)
+
+usage_user() {
+	cat >&2 <<'EOF'
+Usage: burrowrs user COMMAND [NAME] [options]      (needs ACCESS_MODE=users)
+
+  add NAME [limits]     create a user with their own secret; prints their link
+  list                  every user: state, expiry, quota, devices, live usage
+  show NAME             one user's settings and links
+  link NAME [--format all|tg|tme|secret]
+  share NAME            QR code for NAME (terminal, PNG, SVG)
+  renew NAME --days N   extend from today or from the current expiry, whichever is later
+  set NAME [limits]     change limits; anything not given stays as it is
+  disable NAME | enable NAME
+                        cut a user off (live connections drop) or let them back in
+  rotate NAME [--yes]   new secret for NAME: their old link stops working
+  remove NAME [--yes]   delete NAME and their secret
+
+Limits (defaults come from USER_DEFAULT_* in .env):
+  --days N | --until YYYY-MM-DD | --forever     when access ends (end of that day, UTC)
+  --quota SIZE | --quota none                   traffic allowance, e.g. 50G (binary units)
+  --period daily|weekly|monthly|none            when the quota resets (UTC); none = never
+  --ips N | --ips none                          IP addresses connected at once (devices)
+
+Changes apply to the running proxy immediately, without disconnecting anyone else.
+EOF
+}
+
+# parse_user_limits ARGS...: fills L_EXPIRES L_QUOTA L_PERIOD L_IPS L_DAYS
+# with what was given (empty = not given). Dies on anything unknown.
+parse_user_limits() {
+	L_EXPIRES='' L_QUOTA='' L_PERIOD='' L_IPS='' L_DAYS=''
+	while (($#)); do
+		(($# >= 2)) || [[ $1 == --forever ]] || die "$1 needs a value (see ./burrowrs user --help)"
+		case $1 in
+		--days)
+			is_days "$2" || die "--days must be 1-36500 or never"
+			L_DAYS=$2 && shift
+			;;
+		--until)
+			is_date "$2" || die "--until must be a date such as 2026-12-31"
+			L_EXPIRES=${2}T23:59:59Z && shift
+			;;
+		--forever) L_EXPIRES=never ;;
+		--quota)
+			[[ $2 == none ]] || is_size "$2" || die "--quota must be a size such as 50G, or none"
+			L_QUOTA=$2
+			[[ $2 == none ]] || L_QUOTA=${2^^}
+			shift
+			;;
+		--period)
+			[[ $2 == none ]] || is_quota_period "$2" || die "--period must be daily, weekly, monthly or none"
+			L_PERIOD=$2 && shift
+			;;
+		--ips)
+			[[ $2 == none ]] || is_count "$2" || die "--ips must be a positive number, or none"
+			L_IPS=$2 && shift
+			;;
+		*) die "unknown option: $(printf '%q' "$1") (see ./burrowrs user --help)" ;;
+		esac
+		shift
+	done
+	if [[ -n $L_DAYS ]]; then
+		[[ -z $L_EXPIRES ]] || die "give one of --days, --until or --forever"
+		if [[ $L_DAYS == never ]]; then L_EXPIRES=never; else L_EXPIRES=$(expiry_after_days "$L_DAYS"); fi
+	fi
+	return 0
+}
+
+# user_check_limits NAME: the combination must make sense to telemt.
+user_check_limits() {
+	if [[ ${USER_PERIOD[$1]} != none && ${USER_QUOTA[$1]} == none ]]; then
+		die "a quota reset period (--period ${USER_PERIOD[$1]}) needs a quota (--quota SIZE)"
+	fi
+}
+
+user_need_name() {
+	[[ -n ${1-} ]] || die "give a user name (see ./burrowrs user --help)"
+	is_username "$1" || die "bad user name $(printf '%q' "$1"): lowercase letters, digits, . _ - (up to 32)"
+}
+
+user_need_existing() {
+	user_need_name "${1-}"
+	users_exists "$1" || die "no user named $1 (./burrowrs user list)"
+}
+
+user_save_and_apply() {
+	users_save "$USERS_FILE"
+	apply_users || die "saved to $USERS_FILE; it applies once the proxy reloads (or on ./burrowrs up)"
+}
+
+fmt_expiry() {
+	if [[ $1 == never ]]; then echo never; else echo "${1%%T*}"; fi
+}
+
+user_add() {
+	local name=${1-}
+	user_need_name "$name"
+	shift
+	[[ $name != "$OWNER_USER" ]] || die "'$OWNER_USER' is your own built-in user (./burrowrs link)"
+	parse_user_limits "$@"
+	users_exists "$name" && die "$name already exists (./burrowrs user show $name)"
+	((${#USER_NAMES[@]} < 65536)) || die "telemt supports at most 65536 users"
+	if [[ -z $L_EXPIRES ]]; then
+		if [[ $USER_DEFAULT_DAYS == never ]]; then L_EXPIRES=never; else L_EXPIRES=$(expiry_after_days "$USER_DEFAULT_DAYS"); fi
+	fi
+	USER_NAMES+=("$name")
+	USER_KEY[$name]=$(key_new)
+	USER_EXPIRES[$name]=$L_EXPIRES
+	USER_QUOTA[$name]=${L_QUOTA:-$USER_DEFAULT_QUOTA}
+	[[ ${USER_QUOTA[$name]} == none ]] || USER_QUOTA[$name]=${USER_QUOTA[$name]^^}
+	USER_PERIOD[$name]=${L_PERIOD:-$USER_DEFAULT_PERIOD}
+	# A quota given without a period never resets: that is a prepaid
+	# allowance. The .env default period applies only with the default quota.
+	if [[ -n $L_QUOTA && -z $L_PERIOD ]]; then USER_PERIOD[$name]=none; fi
+	USER_IPS[$name]=${L_IPS:-$USER_DEFAULT_IPS}
+	USER_STATUS[$name]=on
+	USER_CREATED[$name]=$(date -u +%Y-%m-%d)
+	user_check_limits "$name"
+	user_save_and_apply
+	ok "added $name: $(user_summary "$name")"
+	say ""
+	say "${C_BOLD}$name's link${C_RESET} (send it to $name only):"
+	print_key_links "${USER_KEY[$name]}" all
+}
+
+user_summary() {
+	local quota=${USER_QUOTA[$1]} ips=${USER_IPS[$1]}
+	case ${USER_PERIOD[$1]} in
+	daily) quota+=/day ;;
+	weekly) quota+=/week ;;
+	monthly) quota+=/month ;;
+	esac
+	[[ $quota == none ]] && quota=unlimited
+	[[ $ips == none ]] && ips=unlimited
+	printf 'expires %s, quota %s, devices %s\n' "$(fmt_expiry "${USER_EXPIRES[$1]}")" "$quota" "$ips"
+}
+
+# Live usage from the running proxy, as USAGE_CONNS/USAGE_IPS/USAGE_TOTAL/USAGE_QUOTA maps.
+load_usage() {
+	declare -gA USAGE_CONNS=() USAGE_IPS=() USAGE_TOTAL=() USAGE_QUOTA=()
+	USAGE_LIVE=0
+	command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1 && stack_running || return 0
+	ensure_tools_image || return 0
+	local out name conns ips total quota
+	out=$(tools_in_proxy usage 2>/dev/null) || return 0
+	while IFS=$'\t' read -r name conns ips total quota; do
+		is_username "$name" || continue
+		USAGE_CONNS[$name]=$conns USAGE_IPS[$name]=$ips USAGE_TOTAL[$name]=$total USAGE_QUOTA[$name]=$quota
+	done <<<"$out"
+	USAGE_LIVE=1
+}
+
+user_list() {
+	allow_flags "" "$@"
+	load_usage
+	local name state quota used fmt='%-20s %-9s %-11s %-16s %-8s %s\n'
+	# shellcheck disable=SC2059 # the format is a fixed local
+	printf "$fmt" NAME STATE EXPIRES QUOTA DEVICES "$( ((USAGE_LIVE)) && echo 'LIVE (connections, IPs, traffic)')"
+	for name in "${USER_NAMES[@]}"; do
+		state=$(user_state "$name")
+		quota=${USER_QUOTA[$name]}
+		if [[ $quota == none ]]; then
+			quota=-
+		elif [[ -n ${USAGE_QUOTA[$name]-} && ${USAGE_QUOTA[$name]} != - ]]; then
+			used=$(human_bytes "${USAGE_QUOTA[$name]}")
+			quota="$used/$quota"
+		fi
+		[[ ${USER_PERIOD[$name]} == none || $quota == - ]] || quota+=" ${USER_PERIOD[$name]:0:1}"
+		local live=''
+		if ((USAGE_LIVE)) && [[ -n ${USAGE_CONNS[$name]-} ]]; then
+			live="${USAGE_CONNS[$name]} conn, ${USAGE_IPS[$name]} IP, $(human_bytes "${USAGE_TOTAL[$name]}")"
+		fi
+		# shellcheck disable=SC2059
+		printf "$fmt" "$name" "$state" "$(fmt_expiry "${USER_EXPIRES[$name]}")" "$quota" "${USER_IPS[$name]/none/-}" "$live"
+	done
+	say ""
+	say "${#USER_NAMES[@]} user(s).$( ((USAGE_LIVE)) || echo ' Live usage appears while burrowrs runs.')"
+	if ((${#USER_NAMES[@]})); then
+		say "QUOTA is used/allowed; d/w/m = resets daily/weekly/monthly (UTC). DEVICES = IPs at once."
+	fi
+}
+
+user_show() {
+	local name=${1-}
+	user_need_existing "$name"
+	shift
+	allow_flags "" "$@"
+	load_usage
+	say "${C_BOLD}$name${C_RESET}  ($(user_state "$name"), created ${USER_CREATED[$name]})"
+	say "  $(user_summary "$name")"
+	if ((USAGE_LIVE)) && [[ -n ${USAGE_CONNS[$name]-} ]]; then
+		local q=''
+		[[ ${USAGE_QUOTA[$name]} == - ]] || q=", $(human_bytes "${USAGE_QUOTA[$name]}") of the quota used"
+		say "  live: ${USAGE_CONNS[$name]} connection(s) from ${USAGE_IPS[$name]} IP(s), $(human_bytes "${USAGE_TOTAL[$name]}") since start$q"
+	fi
+	say ""
+	print_key_links "${USER_KEY[$name]}" all
+}
+
+user_link() {
+	local name=${1-} format=all
+	user_need_existing "$name"
+	shift
+	while (($#)); do
+		case $1 in
+		--format)
+			(($# >= 2)) || die "--format needs a value"
+			format=$2
+			shift
+			;;
+		*) die "unknown option: $(printf '%q' "$1")" ;;
+		esac
+		shift
+	done
+	print_key_links "${USER_KEY[$name]}" "$format"
+}
+
+user_share() {
+	local name=${1-}
+	user_need_existing "$name"
+	shift
+	allow_flags "" "$@"
+	share_key "${USER_KEY[$name]}" "user-$name"
+	say ""
+	print_key_links "${USER_KEY[$name]}" all
+}
+
+user_renew() {
+	local name=${1-} from now
+	user_need_existing "$name"
+	shift
+	parse_user_limits "$@"
+	[[ -n $L_DAYS && -z $L_QUOTA$L_PERIOD$L_IPS ]] || die "usage: burrowrs user renew NAME --days N (or --days never)"
+	if [[ $L_DAYS == never ]]; then
+		USER_EXPIRES[$name]=never
+	else
+		now=$(now_epoch) from=$now
+		if [[ ${USER_EXPIRES[$name]} != never ]]; then
+			from=$(utc_to_epoch "${USER_EXPIRES[$name]}")
+			((from >= now)) || from=$now
+		fi
+		USER_EXPIRES[$name]=$(expiry_after_days "$L_DAYS" "$from")
+	fi
+	user_save_and_apply
+	ok "renewed $name: $(user_summary "$name")"
+}
+
+user_set() {
+	local name=${1-}
+	user_need_existing "$name"
+	shift
+	(($#)) || die "nothing to change (see ./burrowrs user --help)"
+	parse_user_limits "$@"
+	[[ -z $L_EXPIRES ]] || USER_EXPIRES[$name]=$L_EXPIRES
+	[[ -z $L_QUOTA ]] || USER_QUOTA[$name]=$L_QUOTA
+	[[ -z $L_PERIOD ]] || USER_PERIOD[$name]=$L_PERIOD
+	# Removing the quota removes its reset period too.
+	[[ $L_QUOTA != none ]] || USER_PERIOD[$name]=none
+	[[ -z $L_IPS ]] || USER_IPS[$name]=$L_IPS
+	user_check_limits "$name"
+	user_save_and_apply
+	ok "updated $name: $(user_summary "$name")"
+}
+
+user_toggle() { # user_toggle on|off NAME
+	local status=$1 name=${2-}
+	user_need_existing "$name"
+	shift 2
+	allow_flags "" "$@"
+	if [[ ${USER_STATUS[$name]} == "$status" ]]; then
+		ok "$name is already $([[ $status == on ]] && echo enabled || echo disabled)"
+		return 0
+	fi
+	USER_STATUS[$name]=$status
+	user_save_and_apply
+	if [[ $status == off ]]; then ok "disabled $name (their connections were closed)"; else ok "enabled $name"; fi
+}
+
+user_rotate() {
+	local name=${1-} yes=0
+	user_need_existing "$name"
+	shift
+	allow_flags "--yes -y" "$@"
+	[[ ${1-} == --yes || ${1-} == -y ]] && yes=1
+	((yes)) || confirm "give $name a new secret (their current link stops working)"
+	USER_KEY[$name]=$(key_new)
+	user_save_and_apply
+	ok "new secret for $name. Their new link:"
+	print_key_links "${USER_KEY[$name]}" all
+}
+
+user_remove() {
+	local name=${1-} yes=0
+	user_need_existing "$name"
+	shift
+	allow_flags "--yes -y" "$@"
+	[[ ${1-} == --yes || ${1-} == -y ]] && yes=1
+	((yes)) || confirm "remove $name and their secret"
+	# Disable first, so telemt closes live sessions, then drop the user.
+	USER_STATUS[$name]=off
+	users_save "$USERS_FILE"
+	apply_users >/dev/null 2>&1 || true
+	users_remove_name "$name"
+	user_save_and_apply
+	rm -f -- "$STATE_DIR/share/user-$name."{png,svg,txt}
+	ok "removed $name"
+}
+
+cmd_user() {
+	local sub=${1-}
+	[[ -n $sub ]] || {
+		usage_user
+		return 1
+	}
+	shift
+	load_config
+	[[ $ACCESS_MODE == users ]] || die "per-user secrets need ACCESS_MODE=users. Switch with:
+       ./burrowrs config set ACCESS_MODE users && ./burrowrs up
+       (the shared SECRET then becomes your own owner link)"
+	users_load "$USERS_FILE"
+	case $sub in
+	add) user_add "$@" ;;
+	list | ls) user_list "$@" ;;
+	show) user_show "$@" ;;
+	link) user_link "$@" ;;
+	share) user_share "$@" ;;
+	renew) user_renew "$@" ;;
+	set) user_set "$@" ;;
+	disable) user_toggle off "$@" ;;
+	enable) user_toggle on "$@" ;;
+	rotate) user_rotate "$@" ;;
+	remove | rm | delete) user_remove "$@" ;;
+	*)
+		usage_user
+		die "unknown user command: $(printf '%q' "$sub")"
+		;;
+	esac
+}
+
+# ---------------------------------------------------------------------------
+# config
+
+cmd_config() {
+	local sub=${1:-show}
+	shift || true
+	case $sub in
+	show)
+		config_load "$ENV_FILE"
+		local key
+		for key in "${CONFIG_KEYS[@]}"; do
+			if [[ $key == SECRET ]]; then
+				printf '%s=%s\n' "$key" "$(secret_redact "$SECRET")"
+			else
+				printf '%s=%s\n' "$key" "${!key}"
+			fi
+		done
+		;;
+	get)
+		[[ $# -eq 1 ]] || die "usage: burrowrs config get KEY"
+		config_is_known_key "$1" || die "unknown setting $1"
+		config_load "$ENV_FILE"
+		printf '%s\n' "${!1}"
+		;;
+	set)
+		(($# >= 2 && $# % 2 == 0)) || die "usage: burrowrs config set KEY VALUE [KEY VALUE ...]"
+		[[ -f $ENV_FILE ]] || die "no configuration at $ENV_FILE yet. Create one with: ./burrowrs init"
+		local pairs=("$@") i
+		# Check every pair before writing anything.
+		for ((i = 0; i < ${#pairs[@]}; i += 2)); do
+			config_is_known_key "${pairs[i]}" || die "unknown setting ${pairs[i]}"
+			[[ ${pairs[i]} != SECRET ]] || die "use ./burrowrs rotate to change the secret"
+			[[ ${pairs[i + 1]} != *[$'\n\r'\"\']* ]] || die "values must not contain newlines or quotes"
+		done
+		# Apply to a private draft; it replaces .env only if the result is valid.
+		config_load "$ENV_FILE" # a broken .env fails here, before any copy exists
+		local old_front old_link_host old_port
+		old_front=$(config_front_host)
+		old_link_host=$(config_link_host)
+		old_port=$PROXY_PORT
+		# The draft holds the secret: remove it however this command ends.
+		CONFIG_DRAFT=$(mktemp "$ENV_FILE.XXXXXX")
+		trap 'rm -f -- "${CONFIG_DRAFT:-}"' EXIT
+		local draft=$CONFIG_DRAFT
+		cat -- "$ENV_FILE" >"$draft"
+		for ((i = 0; i < ${#pairs[@]}; i += 2)); do
+			config_set_value "$draft" "${pairs[i]}" "${pairs[i + 1]}"
+		done
+		config_load "$draft"
+		if ! config_validate; then
+			rm -f -- "$draft"
+			die "rejected; $ENV_FILE is unchanged"
+		fi
+		chmod 600 "$draft"
+		mv -f -- "$draft" "$ENV_FILE"
+		# Links carry the fronting host and the server: when either changes,
+		# every link handed out so far stops working.
+		if [[ $(config_front_host) != "$old_front" || $(config_link_host) != "$old_link_host" || $PROXY_PORT != "$old_port" ]]; then
+			warn "every link changes (new fronting host, server or port): send everyone their new link after ./burrowrs up"
+		fi
+		ok "updated. Apply with: ./burrowrs up"
+		;;
+	*) die "usage: burrowrs config [show|get KEY|set KEY VALUE ...]" ;;
+	esac
+}
+
+cmd_render() {
+	allow_flags "" "$@"
+	load_config
+	render_all
+	ok "rendered into $STATE_DIR"
+}
+
+# ---------------------------------------------------------------------------
+# doctor
+
+cmd_doctor() {
+	allow_flags "" "$@"
+	local problems=0
+	info "host"
+	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+		ok "Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null)"
+		local cv
+		cv=$(docker compose version --short 2>/dev/null || echo 0)
+		if version_ge "${cv%%[-+]*}" "$MIN_COMPOSE_VERSION"; then ok "Docker Compose $cv"; else
+			cross "Docker Compose ${cv} (need >= $MIN_COMPOSE_VERSION)"
+			problems=$((problems + 1))
+		fi
+	else
+		cross "Docker is not installed or not reachable"
+		problems=$((problems + 1))
+	fi
+	if command -v timedatectl >/dev/null 2>&1; then
+		if [[ $(timedatectl show -p NTPSynchronized --value 2>/dev/null) == yes ]]; then ok "clock is NTP-synchronised"; else
+			warn "clock is not NTP-synchronised: FakeTLS rejects clients whose clock is too far from the server's"
+		fi
+	fi
+	if [[ -r /proc/sys/net/ipv4/tcp_congestion_control ]]; then
+		local cc
+		cc=$(</proc/sys/net/ipv4/tcp_congestion_control)
+		if [[ $cc == bbr ]]; then ok "TCP congestion control: bbr"; else warn "TCP congestion control is $cc; scripts/install-host.sh enables bbr"; fi
+	fi
+
+	info "configuration"
+	if [[ ! -f $ENV_FILE ]]; then
+		cross "no $ENV_FILE yet (./burrowrs init)"
+		return 1
+	fi
+	config_load "$ENV_FILE"
+	if config_validate; then ok "$ENV_FILE is valid ($BURROWRS_MODE mode)"; else problems=$((problems + 1)); fi
+	local perms
+	perms=$(stat -c %a "$ENV_FILE" 2>/dev/null || stat -f %Lp "$ENV_FILE")
+	if [[ $perms == 600 || $perms == 400 ]]; then ok ".env permissions $perms"; else
+		warn ".env is mode $perms; run chmod 600 $ENV_FILE"
+	fi
+
+	if [[ $BURROWRS_MODE == stealth ]]; then
+		if [[ $(site_source_dir) == "$BURROWRS_ROOT/site" ]]; then
+			warn "the decoy site is the stock template. Make it yours: cp -r site site.local, then edit site.local/"
+		else
+			ok "custom decoy site in site.local/"
+		fi
+		if [[ $TLS_MODE == acme ]] && command -v getent >/dev/null 2>&1; then
+			local resolved
+			resolved=$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1; exit}' || true)
+			if [[ -z $resolved ]]; then
+				cross "$DOMAIN does not resolve. Add an A record pointing to ${PUBLIC_IPV4:-this server}"
+				problems=$((problems + 1))
+			elif [[ -n $PUBLIC_IPV4 && $resolved != "$PUBLIC_IPV4" ]]; then
+				cross "$DOMAIN resolves to $resolved, but this server is $PUBLIC_IPV4 (SNI and DNS must match)"
+				problems=$((problems + 1))
+			else
+				ok "$DOMAIN resolves to $resolved"
+			fi
+		fi
+	else
+		warn "simple mode impersonates $COVER_DOMAIN from an IP it does not own; stealth mode is much harder to detect"
+	fi
+
+	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+		info "proxy"
+		# Reads the running proxy; never re-renders (that would swap files
+		# under the live containers).
+		if stack_running; then
+			if compose --progress quiet exec -T telemt /app/telemt healthcheck /etc/telemt/config.toml --mode ready >/dev/null 2>&1; then
+				ok "telemt reports ready (Telegram reachable, TLS front loaded)"
+			else
+				cross "telemt is running but not ready: ./burrowrs logs telemt"
+				problems=$((problems + 1))
+			fi
+			if tools_in_stack probe --host telemt --port 3128 --telegram --retries 1 --timeout 10 >/dev/null 2>&1; then
+				ok "Telegram answers through the proxy"
+			else
+				cross "Telegram does not answer through the proxy (is Telegram reachable from this server?)"
+				problems=$((problems + 1))
+			fi
+		else
+			warn "start burrowrs first to check the running proxy"
+		fi
+	fi
+
+	if ((problems)); then
+		cross "$problems problem(s) found"
+		return 1
+	fi
+	ok "all good"
+}
+
+# ---------------------------------------------------------------------------
+# smoke tests
+
+usage_smoke() {
+	cat >&2 <<'EOF'
+Usage: burrowrs smoke [--no-telegram] [--insecure]
+       burrowrs smoke --link 'tg://proxy?server=...&port=...&secret=...' [--insecure] [--no-telegram]
+
+Without --link: tests the local stack from inside its Docker network.
+With --link:    tests any FakeTLS MTProto proxy over the internet, the way a user
+                (and a censor) would reach it. No .env needed.
+EOF
+}
+
+urldecode() { printf '%b' "${1//%/\\x}"; }
+
+parse_link() { # sets LINK_SERVER LINK_PORT LINK_SECRET
+	local query=${1#*\?} pair key value
+	LINK_SERVER='' LINK_PORT='' LINK_SECRET=''
+	local IFS='&'
+	for pair in $query; do
+		key=${pair%%=*} value=$(urldecode "${pair#*=}")
+		case $key in
+		server) LINK_SERVER=$value ;;
+		port) LINK_PORT=$value ;;
+		secret) LINK_SECRET=$value ;;
+		esac
+	done
+	[[ -n $LINK_SERVER && -n $LINK_PORT && -n $LINK_SECRET ]] ||
+		die "not a proxy link (expected tg://proxy?server=...&port=...&secret=...)"
+	# %q: link values are attacker-controlled and must not reach the terminal raw.
+	is_port "$LINK_PORT" || die "bad port in link: $(printf '%q' "$LINK_PORT")"
+	{ is_hostname "$LINK_SERVER" || is_ip "$LINK_SERVER"; } || die "bad server in link: $(printf '%q' "$LINK_SERVER")"
+	# Links carry the secret as hex (ee…) or base64 (some clients and proxies print that).
+	LINK_SECRET=$(secret_normalize "$LINK_SECRET") ||
+		die "the link does not carry a FakeTLS secret (ee… in hex, or its base64 form)"
+}
+
+_smoke_check() { # _smoke_check DESCRIPTION -- runner args...
+	local description=$1 output
+	shift
+	if output=$("$@" 2>&1); then
+		ok "$description"
+		SMOKE_PASSED=$((SMOKE_PASSED + 1))
+	else
+		cross "$description"
+		say "      ${C_DIM}${output//$'\n'/$'\n      '}${C_RESET}"
+		SMOKE_FAILED=$((SMOKE_FAILED + 1))
+	fi
+}
+
+cmd_smoke() {
+	local link='' telegram=1 insecure=0
+	while (($#)); do
+		case $1 in
+		--link) link=$2 && shift ;;
+		--no-telegram) telegram=0 ;;
+		--insecure) insecure=1 ;;
+		-h | --help) usage_smoke && return 0 ;;
+		*) usage_smoke && die "unknown option: $1" ;;
+		esac
+		shift
+	done
+	# Check the link before anything slow, so a bad link fails immediately.
+	[[ -z $link ]] || parse_link "$link"
+	require_docker
+	ensure_tools_image
+
+	local runner host port sni secret
+	if [[ -n $link ]]; then
+		runner=tools_on_host host=$LINK_SERVER port=$LINK_PORT secret=$LINK_SECRET
+		sni=$(secret_host "$secret")
+		info "smoke-testing $host:$port (fronting as $sni) from this machine"
+	else
+		load_config
+		stack_running || die "burrowrs is not running (./burrowrs up)"
+		runner=tools_in_stack host=telemt port=3128 secret=$(owner_link_secret) sni=$(config_front_host)
+		[[ $TLS_MODE == internal ]] && insecure=1
+		info "smoke-testing the local stack ($BURROWRS_MODE mode)"
+	fi
+	local tls_args=()
+	((insecure)) && tls_args=(--insecure)
+
+	SMOKE_PASSED=0 SMOKE_FAILED=0
+	local wrong
+	wrong=$(key_link_secret "$(key_new)" "$sni")
+	export PROBE_SECRET=$secret
+	_smoke_check "valid client completes the FakeTLS handshake" \
+		"$runner" probe --host "$host" --port "$port" --retries 3
+	if ((telegram)); then
+		_smoke_check "Telegram answers through the proxy (req_pq_multi -> resPQ)" \
+			"$runner" probe --host "$host" --port "$port" --telegram --retries 2 --retry-delay 2
+	fi
+	_smoke_check "replayed handshake is refused (anti-replay)" \
+		"$runner" replay --host "$host" --port "$port"
+	_smoke_check "client with a 10-minute clock skew is refused" \
+		"$runner" probe --host "$host" --port "$port" --time-offset 600 --expect fronted
+	PROBE_SECRET=$wrong _smoke_check "wrong secret gets the cover website, not the proxy" \
+		"$runner" probe --host "$host" --port "$port" --expect fronted
+	if [[ -n $link || $BURROWRS_MODE == simple ]]; then
+		_smoke_check "browsers and probes see $sni over real TLS" \
+			"$runner" https --host "$host" --port "$port" --sni "$sni" "${tls_args[@]}" --retries 3
+	else
+		_smoke_check "browsers and probes see a real website at https://$sni" \
+			"$runner" https --host "$host" --port "$port" --sni "$sni" "${tls_args[@]}" --expect-status 200 --retries 15 --retry-delay 2
+	fi
+	_smoke_check "plain-HTTP scanners get a web server's answer" \
+		"$runner" plaintext --host "$host" --port "$port" --expect-text "HTTP/"
+	if [[ -z $link ]] && command -v curl >/dev/null 2>&1; then
+		_smoke_check "metrics are served on 127.0.0.1:$METRICS_PORT only" \
+			curl -fsS --max-time 5 -o /dev/null "http://127.0.0.1:$METRICS_PORT/metrics"
+	fi
+	unset PROBE_SECRET
+
+	if ((SMOKE_FAILED)); then
+		cross "$SMOKE_FAILED of $((SMOKE_PASSED + SMOKE_FAILED)) checks failed"
+		return 1
+	fi
+	ok "all $SMOKE_PASSED checks passed"
+}
+
+# ---------------------------------------------------------------------------
+# watchdog (run by the systemd timer from scripts/install-host.sh)
+
+cmd_watchdog() {
+	allow_flags "" "$@"
+	if [[ ! -f $ENV_FILE ]]; then
+		say "burrowrs is not configured here yet; nothing to watch"
+		return 0
+	fi
+	load_config
+	require_docker
+	if [[ ! -f $STATE_DIR/compose.env || -z $(compose ps --all --quiet telemt 2>/dev/null) ]]; then
+		say "burrowrs is not deployed here (or was stopped with ./burrowrs down); nothing to watch"
+		return 0
+	fi
+	ensure_tools_image || die "burrowrs watchdog: cannot build the probe image; leaving the proxy alone"
+
+	# Restart only on the probe's own verdict ("FAIL faketls: …"). A non-zero
+	# exit can also come from docker compose or the probe tool breaking, and
+	# restarting telemt then would just drop every user for nothing.
+	local timeout=${BURROWRS_WATCHDOG_TIMEOUT:-10} out
+	if out=$(tools_in_stack probe --host telemt --port 3128 --retries 2 --retry-delay 5 --timeout "$timeout" 2>&1); then
+		say "burrowrs watchdog: proxy healthy"
+	elif [[ $out == *"FAIL faketls:"* ]]; then
+		say "burrowrs watchdog: FakeTLS probe failed 3 times, restarting telemt"
+		if command -v logger >/dev/null 2>&1; then logger -t burrowrs "watchdog restarted telemt"; fi
+		compose up --detach --force-recreate --no-deps telemt
+		tools_in_stack probe --host telemt --port 3128 --retries 20 --retry-delay 1 >/dev/null 2>&1 ||
+			die "burrowrs watchdog: telemt is still unhealthy after a restart"
+	else
+		die "burrowrs watchdog: the probe itself failed; leaving the proxy alone. Output: ${out:0:300}"
+	fi
+
+	if [[ $BURROWRS_MODE == stealth ]]; then
+		if ! out=$(tools_in_stack https --host telemt --port 3128 --sni "$DOMAIN" --insecure --retries 2 --retry-delay 5 2>&1) &&
+			[[ $out == *"FAIL https:"* ]]; then
+			say "burrowrs watchdog: decoy website unreachable, restarting it"
+			compose up --detach --force-recreate --no-deps decoy
+		fi
+	fi
+}
+
+# ---------------------------------------------------------------------------
+# try: a throwaway local instance
+
+cmd_try() {
+	allow_flags "--down --users" "$@"
+	local access=()
+	[[ ${1-} == --users ]] && access=(--access users)
+	ENV_FILE=$BURROWRS_ROOT/.try/.env
+	USERS_FILE=$BURROWRS_ROOT/.try/users.tsv
+	STATE_DIR=$BURROWRS_ROOT/.try/state
+	BURROWRS_PROJECT=burrowrs-try
+	if [[ ${1-} == --down ]]; then
+		if [[ -f $ENV_FILE ]]; then
+			cmd_down --volumes
+		fi
+		rm -rf -- "$BURROWRS_ROOT/.try"
+		ok "trial instance removed"
+		return 0
+	fi
+	require_docker
+	if [[ ! -f $ENV_FILE ]]; then
+		local proxy_port http_port metrics_port
+		if ! proxy_port=$(free_port) || ! http_port=$(free_port) || ! metrics_port=$(free_port); then
+			die "no free local ports found"
+		fi
+		mkdir -p "$BURROWRS_ROOT/.try"
+		chmod 0700 "$BURROWRS_ROOT/.try"
+		cmd_init --domain burrowrs-try.test --tls internal --bind 127.0.0.1 \
+			--port "$proxy_port" --http-port "$http_port" --metrics-port "$metrics_port" \
+			--ipv4 127.0.0.1 --link-host 127.0.0.1 --quiet "${access[@]}" \
+			--subnet 10.204.48.0/28 # its own subnet, so a trial can run next to a real deployment
+	fi
+	# shellcheck disable=SC2119
+	cmd_up
+	cmd_smoke
+	# shellcheck disable=SC2119
+	cmd_share
+	say ""
+	say "${C_BOLD}Try it:${C_RESET} open the app link above in Telegram Desktop on ${C_BOLD}this machine${C_RESET}"
+	say "(the trial listens on 127.0.0.1 only). Remove it with: ./burrowrs try --down"
+}
+
+# ---------------------------------------------------------------------------
+# deploy: install on a fresh server over SSH
+
+usage_deploy() {
+	cat >&2 <<'EOF'
+Usage: burrowrs deploy USER@HOST --domain NAME [options]
+
+  --domain NAME        stealth mode domain (A record must point at HOST)
+  --access shared|users  one secret for everyone, or a secret per user
+  --mode, --cover-domain, --email, --port, --http-port, --enable-ipv6, --link-host,
+  --ipv4, --ipv6, --acme-ca, --tls, --bind, --metrics-port, --subnet
+                       passed to `burrowrs init` on the server (first deploy only)
+  --dir PATH           install directory on the server (default /opt/burrowrs)
+  --ssh-port N         SSH port (default 22)
+  -i, --identity FILE  SSH private key
+  --no-host-setup      skip scripts/install-host.sh (Docker, firewall, sysctl, watchdog)
+  --no-swap            never add a swap file (default: 2 GiB on servers with 2 GiB
+                       of RAM or less and no swap)
+  --no-local-smoke     skip the smoke test from this machine
+
+Idempotent: re-running upgrades the code and keeps the server's .env/secret.
+EOF
+}
+
+project_files() {
+	local f
+	for f in burrowrs lib compose.yaml compose.ipv6.yaml compose.nolog.yaml site site.local \
+		tools/Dockerfile tools/.dockerignore tools/pyproject.toml tools/requirements.txt \
+		tools/requirements-dev.txt tools/burrowrs_tools tools/tests scripts deploy \
+		install.sh README.md LICENSE CHANGELOG.md SECURITY.md CONTRIBUTING.md docs .env.example; do
+		[[ -e $BURROWRS_ROOT/$f ]] && printf '%s\n' "$f"
+	done
+}
+
+cmd_deploy() {
+	local target='' dir=/opt/burrowrs ssh_port=22 identity='' host_setup=1 local_smoke=1
+	local init_args=() proxy_port=443 http_port=80 host_flags=''
+	while (($#)); do
+		case $1 in
+		--dir) dir=$2 && shift ;;
+		--ssh-port) ssh_port=$2 && shift ;;
+		-i | --identity) identity=$2 && shift ;;
+		--no-host-setup) host_setup=0 ;;
+		--no-swap) host_flags+=' --no-swap' ;;
+		--no-local-smoke) local_smoke=0 ;;
+		--port) proxy_port=$2 && init_args+=("$1" "$2") && shift ;;
+		--http-port) http_port=$2 && init_args+=("$1" "$2") && shift ;;
+		--domain | --mode | --cover-domain | --access | --email | --link-host | --ipv4 | --ipv6 | --acme-ca | \
+			--tls | --bind | --metrics-port | --subnet)
+			init_args+=("$1" "$2") && shift
+			;;
+		--enable-ipv6) init_args+=("$1") ;;
+		-h | --help) usage_deploy && return 0 ;;
+		-*) usage_deploy && die "unknown option: $1" ;;
+		*)
+			[[ -z $target ]] || die "only one target allowed"
+			target=$1
+			;;
+		esac
+		shift
+	done
+	[[ $target == *@* ]] || {
+		usage_deploy
+		die "give a target like root@203.0.113.7"
+	}
+	is_port "$ssh_port" || die "bad --ssh-port"
+	is_port "$proxy_port" || die "bad --port"
+	is_port "$http_port" || die "bad --http-port"
+	is_abs_path "$dir" || die "--dir must be an absolute path"
+	need ssh
+	need tar
+
+	local control
+	control=$(mktemp -d "${TMPDIR:-/tmp}/burrowrs-ssh.XXXXXX")
+	local cleanup
+	printf -v cleanup 'ssh -o ControlPath=%q -O exit %q >/dev/null 2>&1 || true; rm -rf -- %q' \
+		"$control/cm" "$target" "$control"
+	# shellcheck disable=SC2064 # expand now: the values are local and %q-quoted
+	trap "$cleanup" EXIT
+	local ssh_opts=(-p "$ssh_port" -o ControlMaster=auto -o "ControlPath=$control/cm" -o ControlPersist=300
+		-o ServerAliveInterval=15 -o ConnectTimeout=15)
+	[[ -n $identity ]] && ssh_opts+=(-i "$identity")
+	# Remote commands are built with printf %q on purpose: they expand remotely.
+	# shellcheck disable=SC2029
+	rsh() { ssh "${ssh_opts[@]}" "$target" "$@"; }
+	rsh_tty() { ssh -t "${ssh_opts[@]}" "$target" "$@"; }
+
+	info "connecting to $target"
+	local uid sudo=''
+	uid=$(rsh id -u) || die "cannot SSH to $target"
+	if [[ $uid != 0 ]]; then
+		# Remote steps run without a terminal, so sudo must not prompt.
+		sudo='sudo -n'
+		rsh 'sudo -n true' >/dev/null 2>&1 ||
+			die "$target: log in as root, or give this user passwordless sudo (deploy runs remote commands non-interactively)"
+	fi
+	local qdir
+	qdir=$(printf '%q' "$dir")
+
+	info "uploading burrowrs to $target:$dir"
+	local files=()
+	mapfile -t files < <(project_files)
+	# No dotfiles from site.local/ (.git, .DS_Store, editor swap files) and no
+	# macOS extended attributes.
+	COPYFILE_DISABLE=1 tar -czf - -C "$BURROWRS_ROOT" --no-xattrs --exclude '__pycache__' --exclude '*.pyc' \
+		--exclude 'site.local/.*' --exclude 'site.local/*/.*' "${files[@]}" |
+		rsh "$sudo mkdir -p $qdir && $sudo tar -xzf - -C $qdir --no-same-owner && $sudo chmod 0755 $qdir" ||
+		die "uploading to $target:$dir failed"
+
+	# Firewall ports: from the server's .env on re-deploys, else from the flags.
+	local has_env=0 mode=stealth
+	if rsh "$sudo test -f $qdir/.env"; then
+		has_env=1
+		mode=$(rsh "$sudo $qdir/burrowrs config get BURROWRS_MODE")
+		proxy_port=$(rsh "$sudo $qdir/burrowrs config get PROXY_PORT")
+		http_port=$(rsh "$sudo $qdir/burrowrs config get HTTP_PORT")
+	elif [[ " ${init_args[*]} " == *" --mode simple "* ||
+		(" ${init_args[*]} " == *" --cover-domain "* && " ${init_args[*]} " != *" --domain "*) ]]; then
+		mode=simple
+	fi
+	local ports=$proxy_port
+	[[ $mode == simple ]] || ports=$http_port,$proxy_port
+
+	if ((host_setup)); then
+		info "preparing the host (Docker, firewall, kernel tuning, time sync, watchdog)"
+		rsh_tty "$sudo $qdir/scripts/install-host.sh --dir $qdir --ssh-port $(printf '%q' "$ssh_port") --ports $(printf '%q' "$ports")$host_flags" ||
+			die "host preparation failed on $target (output above)"
+	fi
+
+	if ((has_env)); then
+		info "keeping the existing configuration and secret on the server"
+	else
+		info "initialising (the secret is generated on the server and never leaves it except in links)"
+		rsh "$sudo $qdir/burrowrs init $(printf '%q ' "${init_args[@]}")" || die "burrowrs init failed on $target (output above)"
+	fi
+	rsh "$sudo $qdir/burrowrs up" || die "the proxy did not start on $target (output above)"
+	rsh "$sudo $qdir/burrowrs smoke" || die "the proxy runs on $target but failed its smoke test (output above)"
+
+	local link
+	link=$(rsh "$sudo $qdir/burrowrs link --format tg") || true
+	[[ $link == tg://proxy\?* ]] || die "could not read the share link from $target"
+	if ((local_smoke)) && command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+		info "testing from this machine, across the internet"
+		local smoke_args=(--link "$link")
+		[[ $(rsh "$sudo $qdir/burrowrs config get TLS_MODE") == internal ]] && smoke_args+=(--insecure)
+		cmd_smoke "${smoke_args[@]}" || warn "the server passes locally but not from here: check firewalls and DNS between you and $target"
+	fi
+	say ""
+	say "${C_BOLD}Deployed.${C_RESET} Share link:"
+	printf '%s\n' "$link"
+}
+
+# ---------------------------------------------------------------------------
+# uninstall
+
+cmd_uninstall() {
+	allow_flags "--purge" "$@"
+	local purge=0
+	[[ ${1-} == --purge ]] && purge=1
+	if [[ -f $ENV_FILE ]]; then
+		config_load "$ENV_FILE"
+		[[ -f $STATE_DIR/compose.env ]] || render_all
+		compose down --remove-orphans --volumes || true
+	fi
+	if [[ -f /etc/systemd/system/burrowrs-watchdog.timer && $EUID -eq 0 ]]; then
+		systemctl disable --now burrowrs-watchdog.timer >/dev/null 2>&1 || true
+		rm -f /etc/systemd/system/burrowrs-watchdog.timer /etc/systemd/system/burrowrs-watchdog.service
+		systemctl daemon-reload
+		ok "removed the watchdog timer"
+	fi
+	docker image rm "$(tools_image)" >/dev/null 2>&1 || true
+	rm -rf -- "$STATE_DIR"
+	if ((purge)); then
+		rm -f -- "$ENV_FILE" "$USERS_FILE"
+		ok "removed containers, volumes, state, $ENV_FILE and $USERS_FILE"
+	else
+		ok "removed containers, volumes and state (kept $ENV_FILE and $USERS_FILE; --purge deletes them)"
+	fi
+}
+
+# ---------------------------------------------------------------------------
+
+usage() {
+	cat >&2 <<EOF
+${C_BOLD}burrowrs${C_RESET} $BURROWRS_VERSION: your own Telegram proxy business in a box (telemt + a real decoy website)
+
+Setup
+  init       create .env with a fresh secret      (init --help; --access users for per-user secrets)
+  up         render config, start, self-check, print links (--no-wait)
+  try        throwaway local instance on 127.0.0.1 (try --users; try --down to remove)
+  deploy     install on a server over SSH          (deploy --help)
+
+Share (ACCESS_MODE=shared: one secret for everyone)
+  link       print share links                    (link --format tg|tme|secret)
+  share      links + QR code (terminal, PNG, SVG)
+  rotate     new secret: revokes every link at once
+
+Users (ACCESS_MODE=users: a name and a secret per user)
+  user       add | list | show | link | share | renew | set | disable | enable | rotate | remove
+             (user --help). In this mode, link/share/rotate are your own owner link.
+
+Operate
+  status     containers, health, traffic counters
+  smoke      end-to-end self-test                 (smoke --link LINK tests any proxy)
+  doctor     check host, DNS, clock, configuration
+  logs       container logs                       (logs -f telemt)
+  restart | down [--volumes] | update | watchdog | uninstall [--purge]
+  config     show | get KEY | set KEY VALUE
+  render     write state/ without starting anything
+
+Environment: BURROWRS_ENV_FILE, BURROWRS_USERS_FILE, BURROWRS_STATE_DIR, BURROWRS_PROJECT, NO_COLOR
+EOF
+}
+
+# Usage for commands without a usage_<command> function of their own.
+command_usage() {
+	case $1 in
+	up | start) say "Usage: burrowrs up [--no-wait]" ;;
+	down | stop) say "Usage: burrowrs down [--volumes]   (--volumes also deletes the certificate and quota-usage volumes)" ;;
+	rotate) say "Usage: burrowrs rotate [--yes]   (new SECRET: in shared mode, every link stops working)" ;;
+	uninstall) say "Usage: burrowrs uninstall [--purge]   (--purge also deletes .env and users.tsv, with their secrets)" ;;
+	try) say "Usage: burrowrs try [--users | --down]" ;;
+	logs) say "Usage: burrowrs logs [-f] [--tail N] [telemt|decoy]" ;;
+	config) say "Usage: burrowrs config [show | get KEY | set KEY VALUE [KEY VALUE ...]]" ;;
+	*) say "Usage: burrowrs $1   (takes no arguments; see ./burrowrs help)" ;;
+	esac
+}
+
+main() {
+	local cmd=${1:-help} fn arg
+	shift || true
+	# `--help` anywhere prints usage and runs nothing.
+	for arg in "$@"; do
+		if [[ $arg == -h || $arg == --help ]]; then
+			case $cmd in
+			init | link | smoke | deploy | user) "usage_$cmd" ;;
+			help | version | --version | -v | --help | -h) usage ;;
+			*) command_usage "$cmd" ;;
+			esac
+			return 0
+		fi
+	done
+	case $cmd in
+	init | up | down | restart | status | logs | link | share | rotate | user | config | render | doctor | smoke | watchdog | update | try | deploy | uninstall)
+		fn=cmd_$cmd
+		;;
+	start) fn=cmd_up ;;
+	users) fn=cmd_user ;;
+	stop) fn=cmd_down ;;
+	version | --version | -v)
+		printf 'burrowrs %s\n' "$BURROWRS_VERSION"
+		return 0
+		;;
+	help | --help | -h)
+		usage
+		return 0
+		;;
+	*)
+		usage
+		die "unknown command: $cmd"
+		;;
+	esac
+	# Not `"$fn" "$@" || exit`: that would switch off errexit inside every command.
+	"$fn" "$@"
+}
+
+main "$@"

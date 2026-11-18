@@ -1,0 +1,2 @@
+# Fake secrets in test fixtures, reviewed and allowed (one fingerprint per finding).
+# Prefer an inline "# gitleaks:allow" comment on the line itself.

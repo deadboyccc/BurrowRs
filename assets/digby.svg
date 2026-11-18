@@ -1,0 +1,376 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-labelledby="digby-title digby-desc">
+  <title id="digby-title">Digby, the burrowrs mole</title>
+  <desc id="digby-desc">A round, friendly mole in brass aviator goggles and a rust-orange knitted scarf, pinned with a little cog brooch, pops out of his burrow in a dawn meadow, while a paper plane loops through the sky.</desc>
+  <defs>
+    <clipPath id="badge"><circle cx="512" cy="512" r="488"/></clipPath>
+    <clipPath id="body"><path d="M296 884 C 262 700, 318 418, 512 402 C 706 418, 762 700, 728 884 Z"/></clipPath>
+
+    <!-- light and atmosphere -->
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5fb0e6"/>
+      <stop offset="0.38" stop-color="#a9d8f2"/>
+      <stop offset="0.62" stop-color="#ffe6cb"/>
+      <stop offset="0.78" stop-color="#ffcfae"/>
+    </linearGradient>
+    <radialGradient id="sunGlow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fffbe6" stop-opacity="1"/>
+      <stop offset="0.18" stop-color="#fff1c2" stop-opacity="0.9"/>
+      <stop offset="0.5" stop-color="#ffe2a0" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#ffd38a" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cloud" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.7" stop-color="#fdf6f4"/>
+      <stop offset="1" stop-color="#ecdfe9"/>
+    </linearGradient>
+    <linearGradient id="hillFar" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b8d7c9"/>
+      <stop offset="1" stop-color="#cfe3d6"/>
+    </linearGradient>
+    <linearGradient id="hillMid" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9fcb8f"/>
+      <stop offset="1" stop-color="#b5d8a3"/>
+    </linearGradient>
+    <linearGradient id="meadow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#8cc274"/>
+      <stop offset="1" stop-color="#5f9e4f"/>
+    </linearGradient>
+
+    <!-- earth -->
+    <linearGradient id="soil" x1="0" y1="740" x2="0" y2="1024" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#c08a5c"/>
+      <stop offset="0.45" stop-color="#a06c42"/>
+      <stop offset="1" stop-color="#6e4428"/>
+    </linearGradient>
+    <radialGradient id="hole" cx="0.5" cy="0.3" r="0.7">
+      <stop offset="0" stop-color="#140a06"/>
+      <stop offset="0.7" stop-color="#2b170d"/>
+      <stop offset="1" stop-color="#4a2c19"/>
+    </radialGradient>
+
+    <!-- Digby -->
+    <radialGradient id="fur" cx="0.38" cy="0.22" r="0.85">
+      <stop offset="0" stop-color="#9c8070"/>
+      <stop offset="0.45" stop-color="#76594b"/>
+      <stop offset="1" stop-color="#4a362e"/>
+    </radialGradient>
+    <radialGradient id="furShade" cx="0.5" cy="1" r="0.6">
+      <stop offset="0" stop-color="#2a1c17" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#2a1c17" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="muzzle" cx="0.45" cy="0.3" r="0.75">
+      <stop offset="0" stop-color="#fff1e4"/>
+      <stop offset="0.6" stop-color="#f1d4bb"/>
+      <stop offset="1" stop-color="#d9b090"/>
+    </radialGradient>
+    <radialGradient id="eye" cx="0.35" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#5a3d30"/>
+      <stop offset="0.45" stop-color="#2a1a16"/>
+      <stop offset="1" stop-color="#0f0a0b"/>
+    </radialGradient>
+    <radialGradient id="nose" cx="0.38" cy="0.28" r="0.8">
+      <stop offset="0" stop-color="#ffc3d4"/>
+      <stop offset="0.55" stop-color="#f27fa3"/>
+      <stop offset="1" stop-color="#c94d77"/>
+    </radialGradient>
+    <radialGradient id="blush" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ff8fb0" stop-opacity="0.7"/>
+      <stop offset="1" stop-color="#ff8fb0" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="paw" cx="0.4" cy="0.3" r="0.8">
+      <stop offset="0" stop-color="#ffdccd"/>
+      <stop offset="0.6" stop-color="#f3b3a0"/>
+      <stop offset="1" stop-color="#d98d7a"/>
+    </radialGradient>
+    <linearGradient id="brass" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#fff0c4"/>
+      <stop offset="0.25" stop-color="#f2c26f"/>
+      <stop offset="0.55" stop-color="#c98a3a"/>
+      <stop offset="0.8" stop-color="#e9b45e"/>
+      <stop offset="1" stop-color="#8f5a22"/>
+    </linearGradient>
+    <linearGradient id="brassInner" x1="1" y1="1" x2="0" y2="0">
+      <stop offset="0" stop-color="#fff0c4"/>
+      <stop offset="0.5" stop-color="#d79b4a"/>
+      <stop offset="1" stop-color="#7a4a1a"/>
+    </linearGradient>
+    <linearGradient id="lens" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#eefaff"/>
+      <stop offset="0.35" stop-color="#a9dcf6"/>
+      <stop offset="0.7" stop-color="#5aa7d8"/>
+      <stop offset="1" stop-color="#2f74ad"/>
+    </linearGradient>
+    <linearGradient id="leather" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#9a5a33"/>
+      <stop offset="1" stop-color="#5e331b"/>
+    </linearGradient>
+    <linearGradient id="scarf" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff9a5c"/>
+      <stop offset="0.55" stop-color="#dd5f22"/>
+      <stop offset="1" stop-color="#a8420f"/>
+    </linearGradient>
+    <linearGradient id="scarfTail" x1="0" y1="0" x2="1" y2="0.3">
+      <stop offset="0" stop-color="#b9480f"/>
+      <stop offset="0.6" stop-color="#e8692a"/>
+      <stop offset="1" stop-color="#ffa468"/>
+    </linearGradient>
+    <!-- the cog brooch: oxidised copper, the colour of rust -->
+    <linearGradient id="cog" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffd0a6"/>
+      <stop offset="0.3" stop-color="#e98a4c"/>
+      <stop offset="0.65" stop-color="#b7531b"/>
+      <stop offset="1" stop-color="#7a3210"/>
+    </linearGradient>
+    <linearGradient id="planeTop" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#e3f0fb"/>
+    </linearGradient>
+    <linearGradient id="planeFold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#c9e2f6"/>
+      <stop offset="1" stop-color="#93bfe3"/>
+    </linearGradient>
+
+    <!-- effects -->
+    <filter id="blur4" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="4"/></filter>
+    <filter id="blur10" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="10"/></filter>
+    <filter id="furTexture" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.85 0.35" numOctaves="2" seed="7" result="noise"/>
+      <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0.98  0 0 0 0 0.9  0 0 0 0 0.84  0 0 0 0.55 -0.18"/>
+    </filter>
+    <filter id="soilTexture" x="0" y="0" width="100%" height="100%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.06" numOctaves="3" seed="3" result="noise"/>
+      <feColorMatrix in="noise" type="matrix" values="0 0 0 0 0.2  0 0 0 0 0.11  0 0 0 0 0.05  0 0 0 0.9 -0.35"/>
+    </filter>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="9"/>
+      <feOffset dx="6" dy="14" result="blur"/>
+      <feFlood flood-color="#3b2a2a" flood-opacity="0.28"/>
+      <feComposite in2="blur" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+
+  <g clip-path="url(#badge)">
+    <!-- sky -->
+    <rect width="1024" height="1024" fill="url(#sky)"/>
+    <g opacity="0.35" filter="url(#blur10)">
+      <path d="M262 286 L 120 0 L 210 0 Z" fill="#fff6d8"/>
+      <path d="M262 286 L 330 0 L 400 0 Z" fill="#fff6d8"/>
+      <path d="M262 286 L 0 120 L 0 220 Z" fill="#fff6d8"/>
+      <path d="M262 286 L 560 120 L 600 190 Z" fill="#fff6d8"/>
+    </g>
+    <circle cx="262" cy="286" r="230" fill="url(#sunGlow)"/>
+    <circle cx="262" cy="286" r="66" fill="#fffaea"/>
+
+    <!-- clouds -->
+    <g filter="url(#shadow)">
+      <g fill="url(#cloud)">
+        <circle cx="430" cy="196" r="44"/>
+        <circle cx="486" cy="168" r="62"/>
+        <circle cx="552" cy="186" r="50"/>
+        <circle cx="596" cy="208" r="34"/>
+        <rect x="396" y="196" width="232" height="46" rx="23"/>
+      </g>
+      <g fill="url(#cloud)" opacity="0.92">
+        <circle cx="812" cy="470" r="30"/>
+        <circle cx="850" cy="450" r="42"/>
+        <circle cx="894" cy="468" r="32"/>
+        <rect x="786" y="468" width="132" height="32" rx="16"/>
+      </g>
+    </g>
+
+    <!-- hills fading into the haze -->
+    <path d="M0 640 C 120 590, 220 600, 330 628 C 430 652, 520 600, 640 592 C 780 584, 900 620, 1024 600 L1024 1024 L0 1024 Z" fill="url(#hillFar)"/>
+    <path d="M0 702 C 140 664, 260 676, 380 700 C 500 724, 620 690, 760 684 C 880 680, 960 700, 1024 694 L1024 1024 L0 1024 Z" fill="url(#hillMid)"/>
+    <path d="M0 776 C 180 744, 340 752, 512 762 C 690 772, 860 748, 1024 760 L1024 1024 L0 1024 Z" fill="url(#meadow)"/>
+
+    <!-- meadow details: grass and a few flowers -->
+    <g fill="none" stroke="#4f8a43" stroke-width="5" stroke-linecap="round">
+      <path d="M96 830 q -6 -30 -22 -44 M104 830 q 2 -34 16 -46 M112 830 q 12 -22 30 -28"/>
+      <path d="M908 816 q -8 -28 -24 -40 M916 816 q 2 -32 14 -44 M924 816 q 12 -20 28 -26"/>
+      <path d="M210 790 q -4 -18 -14 -26 M216 790 q 4 -20 14 -26"/>
+      <path d="M820 784 q -4 -18 -14 -26 M826 784 q 4 -20 14 -26"/>
+    </g>
+    <g>
+      <g transform="translate(168 806)">
+        <g fill="#fff7fb"><circle cx="0" cy="-9" r="7"/><circle cx="8.5" cy="-3" r="7"/><circle cx="5.5" cy="7" r="7"/><circle cx="-5.5" cy="7" r="7"/><circle cx="-8.5" cy="-3" r="7"/></g>
+        <circle r="5" fill="#ffc94d"/>
+      </g>
+      <g transform="translate(866 792) scale(0.85)">
+        <g fill="#ffe0ef"><circle cx="0" cy="-9" r="7"/><circle cx="8.5" cy="-3" r="7"/><circle cx="5.5" cy="7" r="7"/><circle cx="-5.5" cy="7" r="7"/><circle cx="-8.5" cy="-3" r="7"/></g>
+        <circle r="5" fill="#ffc94d"/>
+      </g>
+      <g transform="translate(944 860) scale(0.7)">
+        <g fill="#fff7fb"><circle cx="0" cy="-9" r="7"/><circle cx="8.5" cy="-3" r="7"/><circle cx="5.5" cy="7" r="7"/><circle cx="-5.5" cy="7" r="7"/><circle cx="-8.5" cy="-3" r="7"/></g>
+        <circle r="5" fill="#ffc94d"/>
+      </g>
+    </g>
+
+    <!-- the mound and the back of the burrowrs -->
+    <path d="M118 1024 C 150 868, 300 770, 512 768 C 724 770, 874 868, 906 1024 Z" fill="url(#soil)"/>
+    <path d="M118 1024 C 150 868, 300 770, 512 768 C 724 770, 874 868, 906 1024 Z" filter="url(#soilTexture)" opacity="0.55"/>
+    <path d="M200 860 C 280 800, 400 776, 512 776 C 624 776, 744 800, 824 860" fill="none" stroke="#d9a578" stroke-width="10" stroke-linecap="round" opacity="0.55" filter="url(#blur4)"/>
+    <ellipse cx="512" cy="818" rx="236" ry="54" fill="url(#hole)"/>
+
+    <!-- paper plane and its loop -->
+    <path d="M588 398 C 548 332, 572 262, 624 266 C 676 270, 678 332, 636 334 C 604 336, 600 292, 630 270" fill="none" stroke="#ffffff" stroke-width="10" stroke-linecap="round" stroke-dasharray="1 22" opacity="0.95"/>
+    <g transform="translate(640 214) rotate(-14) scale(0.82)">
+      <g filter="url(#shadow)">
+        <path d="M0 48 L 168 0 L 96 132 L 70 92 Z" fill="url(#planeTop)"/>
+        <path d="M168 0 L 70 92 L 62 128 L 96 132 Z" fill="url(#planeFold)"/>
+        <path d="M168 0 L 70 92 L 62 128" fill="none" stroke="#7fb0d8" stroke-width="3" stroke-linejoin="round"/>
+        <path d="M0 48 L 168 0 L 96 132 L 70 92 Z" fill="none" stroke="#2c6ea6" stroke-width="5" stroke-linejoin="round"/>
+      </g>
+    </g>
+    <!-- sparkles -->
+    <g fill="#ffffff">
+      <path d="M880 300 l 6 18 l 18 6 l -18 6 l -6 18 l -6 -18 l -18 -6 l 18 -6 Z" opacity="0.95"/>
+      <path d="M352 400 l 4 12 l 12 4 l -12 4 l -4 12 l -4 -12 l -12 -4 l 12 -4 Z" opacity="0.9"/>
+      <path d="M640 120 l 3 9 l 9 3 l -9 3 l -3 9 l -3 -9 l -9 -3 l 9 -3 Z" opacity="0.85"/>
+    </g>
+
+    <!-- Digby: body, shading, fur -->
+    <ellipse cx="512" cy="836" rx="214" ry="40" fill="#0a0503" opacity="0.6" filter="url(#blur10)"/>
+    <path d="M296 884 C 262 700, 318 418, 512 402 C 706 418, 762 700, 728 884 Z" fill="url(#fur)"/>
+    <g clip-path="url(#body)">
+      <rect x="250" y="390" width="530" height="500" filter="url(#furTexture)" opacity="0.5"/>
+      <rect x="250" y="640" width="530" height="260" fill="url(#furShade)"/>
+      <!-- rim light on the sunlit side -->
+      <path d="M330 760 C 300 620, 350 450, 500 414" fill="none" stroke="#f6dcc7" stroke-width="22" stroke-linecap="round" opacity="0.45" filter="url(#blur10)"/>
+      <!-- cool bounce light on the shadow side -->
+      <path d="M700 760 C 730 640, 700 500, 600 430" fill="none" stroke="#b9cfe0" stroke-width="18" stroke-linecap="round" opacity="0.25" filter="url(#blur10)"/>
+      <!-- fur strokes -->
+      <g fill="none" stroke="#b39686" stroke-width="5" stroke-linecap="round" opacity="0.45">
+        <path d="M352 640 q 12 -10 22 2"/><path d="M336 700 q 12 -10 22 2"/><path d="M372 590 q 12 -10 22 2"/>
+        <path d="M650 640 q 12 -10 22 2"/><path d="M664 700 q 12 -10 22 2"/><path d="M630 590 q 12 -10 22 2"/>
+      </g>
+    </g>
+    <!-- fluffy fur edge -->
+    <g fill="#5d463c">
+      <path d="M300 760 l -14 -6 l 12 -10 Z"/><path d="M296 700 l -14 -4 l 13 -12 Z"/><path d="M304 640 l -12 -2 l 14 -12 Z"/>
+      <path d="M724 760 l 14 -6 l -12 -10 Z"/><path d="M728 700 l 14 -4 l -13 -12 Z"/><path d="M720 640 l 12 -2 l -14 -12 Z"/>
+    </g>
+    <!-- head tuft -->
+    <path d="M494 410 C 488 384, 500 370, 512 386 C 516 366, 540 368, 532 408" fill="none" stroke="#5d463c" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M498 402 C 496 388, 502 380, 508 388" fill="none" stroke="#a88a7b" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+
+    <!-- goggles: buckled leather strap, beveled brass, glass with sky reflections -->
+    <g clip-path="url(#body)">
+      <path d="M270 548 Q 512 372 754 548" fill="none" stroke="url(#leather)" stroke-width="38"/>
+      <path d="M270 548 Q 512 372 754 548" fill="none" stroke="#e2b07c" stroke-width="3" stroke-dasharray="11 10" transform="translate(0 -10)"/>
+      <path d="M270 548 Q 512 372 754 548" fill="none" stroke="#e2b07c" stroke-width="3" stroke-dasharray="11 10" transform="translate(0 10)"/>
+    </g>
+    <g filter="url(#shadow)">
+      <circle cx="448" cy="478" r="64" fill="url(#brass)"/>
+      <circle cx="576" cy="478" r="64" fill="url(#brass)"/>
+      <circle cx="448" cy="478" r="52" fill="url(#brassInner)"/>
+      <circle cx="576" cy="478" r="52" fill="url(#brassInner)"/>
+      <path d="M502 470 Q 512 452 522 470" fill="none" stroke="url(#brass)" stroke-width="16" stroke-linecap="round"/>
+    </g>
+    <circle cx="448" cy="478" r="45" fill="url(#lens)"/>
+    <circle cx="576" cy="478" r="45" fill="url(#lens)"/>
+    <g fill="none" stroke-linecap="round">
+      <path d="M418 466 Q 424 440 448 434" stroke="#ffffff" stroke-width="10" opacity="0.9"/>
+      <path d="M546 466 Q 552 440 576 434" stroke="#ffffff" stroke-width="10" opacity="0.9"/>
+      <path d="M470 500 Q 478 492 482 480" stroke="#ffffff" stroke-width="5" opacity="0.6"/>
+      <path d="M598 500 Q 606 492 610 480" stroke="#ffffff" stroke-width="5" opacity="0.6"/>
+    </g>
+    <circle cx="434" cy="452" r="6" fill="#ffffff"/>
+    <circle cx="562" cy="452" r="6" fill="#ffffff"/>
+    <g fill="#fff3d0">
+      <circle cx="398" cy="448" r="4.5"/><circle cx="448" cy="420" r="4.5"/><circle cx="498" cy="448" r="4.5"/>
+      <circle cx="526" cy="448" r="4.5"/><circle cx="576" cy="420" r="4.5"/><circle cx="626" cy="448" r="4.5"/>
+    </g>
+
+    <!-- face -->
+    <ellipse cx="512" cy="610" rx="156" ry="116" fill="url(#muzzle)"/>
+    <ellipse cx="512" cy="700" rx="120" ry="30" fill="#b98f70" opacity="0.28" filter="url(#blur10)"/>
+    <!-- eyes -->
+    <path d="M402 520 Q 432 504 462 518" fill="none" stroke="#4a362e" stroke-width="7" stroke-linecap="round"/>
+    <path d="M562 518 Q 592 504 622 520" fill="none" stroke="#4a362e" stroke-width="7" stroke-linecap="round"/>
+    <ellipse cx="432" cy="560" rx="28" ry="33" fill="url(#eye)"/>
+    <ellipse cx="592" cy="560" rx="28" ry="33" fill="url(#eye)"/>
+    <ellipse cx="421" cy="545" rx="11" ry="12" fill="#ffffff"/>
+    <ellipse cx="581" cy="545" rx="11" ry="12" fill="#ffffff"/>
+    <circle cx="443" cy="576" r="5" fill="#ffffff" opacity="0.85"/>
+    <circle cx="603" cy="576" r="5" fill="#ffffff" opacity="0.85"/>
+    <path d="M412 584 Q 432 594 452 584" fill="none" stroke="#a9746a" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+    <path d="M572 584 Q 592 594 612 584" fill="none" stroke="#a9746a" stroke-width="3" stroke-linecap="round" opacity="0.5"/>
+    <!-- cheeks -->
+    <ellipse cx="384" cy="630" rx="50" ry="30" fill="url(#blush)"/>
+    <ellipse cx="640" cy="630" rx="50" ry="30" fill="url(#blush)"/>
+    <!-- nose -->
+    <ellipse cx="512" cy="592" rx="52" ry="38" fill="url(#nose)"/>
+    <ellipse cx="494" cy="576" rx="18" ry="10" fill="#ffffff" opacity="0.85" transform="rotate(-12 494 576)"/>
+    <ellipse cx="496" cy="606" rx="6" ry="4" fill="#b1406a" opacity="0.6"/>
+    <ellipse cx="528" cy="606" rx="6" ry="4" fill="#b1406a" opacity="0.6"/>
+    <!-- smile with a little tongue -->
+    <path d="M478 648 Q 495 668 512 650 Q 529 668 546 648" fill="none" stroke="#6b4436" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M500 660 Q 512 680 524 660 Q 512 666 500 660 Z" fill="#f2778f"/>
+    <!-- whiskers -->
+    <g stroke="#c4a693" stroke-width="4" stroke-linecap="round" opacity="0.9" fill="none">
+      <path d="M408 630 Q 360 616 316 616"/>
+      <path d="M408 650 Q 362 652 322 666"/>
+      <path d="M616 630 Q 664 616 708 616"/>
+      <path d="M616 650 Q 662 652 702 666"/>
+    </g>
+
+    <!-- knitted scarf, tail streaming in the wind -->
+    <path d="M684 760 C 752 744, 800 704, 868 700 C 852 724, 860 748, 892 762 C 832 778, 790 818, 694 808 Z" fill="url(#scarfTail)" filter="url(#shadow)"/>
+    <path d="M720 772 C 770 760, 812 734, 852 728" fill="none" stroke="#9a3c0e" stroke-width="4" opacity="0.45"/>
+    <g stroke="#ffd9bd" stroke-width="5" stroke-linecap="round" opacity="0.85">
+      <path d="M868 700 l 14 -12"/><path d="M874 722 l 18 -6"/><path d="M880 744 l 18 2"/><path d="M892 762 l 14 10"/>
+    </g>
+    <path d="M300 722 C 380 776, 644 776, 724 722 L 732 780 C 652 836, 372 836, 292 780 Z" fill="url(#scarf)"/>
+    <g fill="none" stroke="#ffc28f" stroke-width="6" stroke-linecap="round" opacity="0.6">
+      <path d="M312 750 C 396 800, 628 800, 712 750"/>
+    </g>
+    <g fill="none" stroke="#9a3c0e" stroke-width="3" opacity="0.35">
+      <path d="M340 742 l 8 22 M380 756 l 8 22 M420 764 l 8 22 M460 768 l 8 22 M500 770 l 8 22 M540 768 l 8 22 M580 764 l 8 22 M620 756 l 8 22 M660 744 l 8 22"/>
+    </g>
+    <ellipse cx="684" cy="784" rx="42" ry="34" fill="url(#scarf)" filter="url(#shadow)"/>
+    <path d="M664 772 Q 684 760 704 774" fill="none" stroke="#ffc28f" stroke-width="5" stroke-linecap="round" opacity="0.7"/>
+    <!-- a little cog pinned to the knot: Digby runs on Rust now -->
+    <g transform="translate(684 784) rotate(10)" filter="url(#shadow)">
+      <g fill="url(#cog)" stroke="#5c2509" stroke-width="3" stroke-linejoin="round">
+        <rect x="-7" y="-33" width="14" height="14" rx="2.5"/>
+        <rect x="-7" y="-33" width="14" height="14" rx="2.5" transform="rotate(45)"/>
+        <rect x="-7" y="-33" width="14" height="14" rx="2.5" transform="rotate(90)"/>
+        <rect x="-7" y="-33" width="14" height="14" rx="2.5" transform="rotate(135)"/>
+        <rect x="-7" y="-33" width="14" height="14" rx="2.5" transform="rotate(180)"/>
+        <rect x="-7" y="-33" width="14" height="14" rx="2.5" transform="rotate(225)"/>
+        <rect x="-7" y="-33" width="14" height="14" rx="2.5" transform="rotate(270)"/>
+        <rect x="-7" y="-33" width="14" height="14" rx="2.5" transform="rotate(315)"/>
+        <circle r="24"/>
+      </g>
+      <circle r="9" fill="#4a1d08" stroke="#5c2509" stroke-width="2"/>
+      <path d="M -15 -10 A 18 18 0 0 1 4 -18" fill="none" stroke="#fff1e2" stroke-width="4" stroke-linecap="round" opacity="0.8"/>
+    </g>
+
+    <!-- the front lip of the burrowrs covers the bottom of the body -->
+    <path d="M276 818 C 320 880, 704 880, 748 818 C 820 834, 878 900, 906 1024 L118 1024 C 146 900, 204 834, 276 818 Z" fill="url(#soil)"/>
+    <path d="M276 818 C 320 880, 704 880, 748 818 C 820 834, 878 900, 906 1024 L118 1024 C 146 900, 204 834, 276 818 Z" filter="url(#soilTexture)" opacity="0.5"/>
+    <path d="M290 832 C 350 884, 674 884, 734 832" fill="none" stroke="#e0ab7c" stroke-width="12" stroke-linecap="round" opacity="0.75"/>
+    <g fill="#d6a27a">
+      <ellipse cx="236" cy="950" rx="16" ry="10"/><ellipse cx="760" cy="936" rx="13" ry="8"/>
+      <ellipse cx="716" cy="976" rx="9" ry="6"/><ellipse cx="300" cy="996" rx="10" ry="6"/>
+    </g>
+
+    <!-- paws resting on the rim -->
+    <g filter="url(#shadow)">
+      <ellipse cx="404" cy="858" rx="64" ry="38" fill="url(#paw)"/>
+      <ellipse cx="620" cy="858" rx="64" ry="38" fill="url(#paw)"/>
+    </g>
+    <g fill="#fff8ef" stroke="#e8c2ae" stroke-width="2">
+      <path d="M372 880 q -4 18 4 24 q 8 -6 4 -24 Z"/><path d="M398 886 q -3 20 4 26 q 8 -6 4 -26 Z"/><path d="M424 884 q -1 18 6 24 q 7 -6 2 -24 Z"/>
+      <path d="M596 884 q -5 18 2 24 q 7 -6 6 -24 Z"/><path d="M622 886 q -4 20 4 26 q 7 -6 3 -26 Z"/><path d="M648 880 q -4 18 4 24 q 8 -6 3 -24 Z"/>
+    </g>
+    <ellipse cx="392" cy="842" rx="22" ry="10" fill="#ffffff" opacity="0.45"/>
+    <ellipse cx="608" cy="842" rx="22" ry="10" fill="#ffffff" opacity="0.45"/>
+  </g>
+
+  <!-- badge rim -->
+  <circle cx="512" cy="512" r="488" fill="none" stroke="#ffffff" stroke-width="14"/>
+  <circle cx="512" cy="512" r="499" fill="none" stroke="#8a5a3b" stroke-width="6" opacity="0.5"/>
+  <circle cx="512" cy="512" r="478" fill="none" stroke="#000000" stroke-width="4" opacity="0.06"/>
+</svg>

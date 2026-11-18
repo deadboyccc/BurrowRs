@@ -1,0 +1,5 @@
+# Lint every script as bash and follow `source` statements.
+shell=bash
+external-sources=true
+enable=avoid-nullary-conditions,deprecate-which
+source-path=SCRIPTDIR

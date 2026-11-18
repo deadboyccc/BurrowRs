@@ -1,0 +1,24 @@
+# Secrets and machine-local state
+.env
+.env.*
+!.env.example
+state/
+.try/
+site.local/
+
+# Test and tool caches
+tests/.deps/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+.burrowrs-manifest
+
+# Per-user secrets (ACCESS_MODE=users)
+users.tsv

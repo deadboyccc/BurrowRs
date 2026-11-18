@@ -1,0 +1,44 @@
+name: Pages
+
+# Publishes website/ (plus the mascot) to the gh-pages branch, which GitHub
+# Pages serves at https://deadboyccc.github.io/BurrowRs/.
+on:
+  push:
+    branches: [main]
+    paths: ["website/**", "assets/**", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp -R website/. _site/
+          cp assets/digby.svg _site/digby.svg
+          touch _site/.nojekyll
+      - name: Push to gh-pages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd _site
+          git init -q -b gh-pages
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -q -m "Publish website from ${GITHUB_SHA::7}"
+          git push --force --quiet "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages

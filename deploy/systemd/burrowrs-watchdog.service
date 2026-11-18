@@ -1,0 +1,22 @@
+[Unit]
+Description=burrowrs watchdog: probe the Telegram proxy and restart it if stuck
+Documentation=https://github.com/deadboyccc/BurrowRs
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=@BURROWRS_DIR@/burrowrs watchdog
+Environment=NO_COLOR=1
+TimeoutStartSec=300
+Nice=10
+# The watchdog only talks to the Docker socket; keep it away from the rest.
+ProtectSystem=full
+PrivateTmp=true
+NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true

@@ -1,0 +1,26 @@
+[project]
+name = "burrowrs-tools"
+version = "1.0.0"
+description = "Probes, smoke tests and offline QR codes for a burrowrs MTProto proxy"
+requires-python = ">=3.12"
+license = "MIT"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+markers = ["network: needs a live proxy or the internet"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "PL"]
+ignore = [
+  "PLR2004",  # protocol constants are clearer inline
+  "PLR0913",  # probes take several keyword options on purpose
+  "S101",     # asserts are fine in tests
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "PLR"]

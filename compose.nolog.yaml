@@ -1,0 +1,11 @@
+# Overlay applied by ./burrowrs when LOGGING=off: no container logs at all.
+# With LOGGING=on, telemt logs at LOG_LEVEL (default silent: warnings and
+# errors only; a few, such as detected replay attacks, include the client IP).
+# This keeps nothing at all.
+services:
+  telemt:
+    logging: !override
+      driver: none
+  decoy:
+    logging: !override
+      driver: none

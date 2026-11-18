@@ -1,0 +1,239 @@
+# burrowrs: hardened MTProto proxy stack.
+#
+# Don't run `docker compose` against this file by hand. Use ./burrowrs: it
+# renders state/ from .env, then passes the env file, project name, profiles
+# and overlays (compose.ipv6.yaml, compose.nolog.yaml) consistently.
+#
+# Images are pinned by digest. Dependabot bumps them in reviewed PRs.
+
+name: burrowrs
+
+x-hardened: &hardened
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  logging:
+    driver: local
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  # One-shot: hand the quota-state volume to the unprivileged proxy user.
+  telemt-init:
+    image: busybox:1.38.0@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - '[ "$$(stat -c %u /data)" = 65534 ] || { chmod 0700 /data && chown 65534:65534 /data; }'
+    volumes:
+      - type: volume
+        source: telemt-data
+        target: /data
+        volume: { nocopy: true }
+
+  # The proxy. Owns the public TLS port; valid FakeTLS clients are relayed to
+  # Telegram, everything else is spliced to the decoy website.
+  telemt:
+    <<: *hardened
+    image: ghcr.io/telemt/telemt:3.5.17@sha256:1c0c93815638dd40b37c79621317d7094d015f58673751603718221df4a53392
+    user: "65534:65534"
+    entrypoint: ["/app/telemt"]
+    command: ["run", "/etc/telemt/config.toml"]
+    environment:
+      # From LOG_LEVEL, with telemt's link logger off: it would print every
+      # new user's secret on reload. See telemt_rust_log in lib/render.sh.
+      RUST_LOG: ${TELEMT_RUST_LOG:?render with ./burrowrs up}
+    # Downloaded Telegram proxy config and the TLS-front cache. Nothing in
+    # here outlives the container.
+    working_dir: /run/telemt
+    tmpfs:
+      - /run/telemt:size=16m,uid=65534,gid=65534,mode=0700
+    volumes:
+      # A directory, not single files: users.toml is replaced atomically on
+      # every user change, and a directory mount sees the new file.
+      - type: bind
+        source: ${BURROWRS_STATE_DIR:?render with ./burrowrs up}/telemt
+        target: /etc/telemt
+        read_only: true
+      - type: volume
+        source: telemt-data
+        target: /var/lib/telemt
+        volume: { nocopy: true }
+    ports:
+      - name: proxy
+        target: 3128
+        published: "${PROXY_PORT:?render with ./burrowrs up}"
+        host_ip: ${BIND_ADDR}
+        protocol: tcp
+      - name: metrics
+        target: 3129
+        published: "${METRICS_PORT}"
+        host_ip: 127.0.0.1
+        protocol: tcp
+    networks:
+      edge: {}
+    depends_on:
+      telemt-init:
+        condition: service_completed_successfully
+      decoy:
+        condition: service_healthy
+        required: false
+    healthcheck:
+      test: ["CMD", "/app/telemt", "healthcheck", "/etc/telemt/config.toml", "--mode", "liveness"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+      start_interval: 1s
+    labels:
+      io.burrowrs.config-hash: ${TELEMT_CONFIG_HASH}
+    ulimits:
+      nofile: { soft: 65536, hard: 65536 }
+    # Every client connection and every connection to Telegram ends in this
+    # container's own network namespace, which does NOT inherit most of the
+    # host's TCP settings (deploy/sysctl/99-burrowrs.conf). Without these, the
+    # relay would run on kernel defaults whatever the host is tuned to.
+    # A unit test keeps them in step with the host profile.
+    sysctls:
+      net.core.somaxconn: "8192"
+      net.ipv4.tcp_max_syn_backlog: "8192"
+      net.ipv4.ip_local_port_range: "1024 65000"
+      net.ipv4.tcp_slow_start_after_idle: "0"
+      net.ipv4.tcp_mtu_probing: "1"
+      net.ipv4.tcp_notsent_lowat: "131072"
+      net.ipv4.tcp_fin_timeout: "15"
+      net.ipv4.tcp_keepalive_time: "300"
+      net.ipv4.tcp_keepalive_intvl: "30"
+      net.ipv4.tcp_keepalive_probes: "5"
+    mem_limit: ${TELEMT_MEMORY_LIMIT}
+    pids_limit: 512
+    stop_grace_period: 15s
+
+  # One-shot: hand the certificate volume to the unprivileged decoy user.
+  decoy-init:
+    image: busybox:1.38.0@sha256:a46257e06c82ad85242d0d38077d0a52d9896389ca60a1a59d3463db586e5fa4
+    profiles: [stealth]
+    user: "0:0"
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [CHOWN]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    command:
+      - sh
+      - -c
+      - '[ "$$(stat -c %u /data)" = 65534 ] || { chmod 0700 /data && chown 65534:65534 /data; }'
+    volumes:
+      - type: volume
+        source: decoy-data
+        target: /data
+        volume: { nocopy: true }
+
+  # The decoy website with a real certificate. Never published on 443:
+  # telemt is the only way in.
+  decoy:
+    <<: *hardened
+    image: caddy:2.11.9-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    profiles: [stealth]
+    user: "65534:65534"
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    volumes:
+      - type: bind
+        source: ${BURROWRS_STATE_DIR}/Caddyfile
+        target: /etc/caddy/Caddyfile
+        read_only: true
+      - type: bind
+        source: ${BURROWRS_STATE_DIR}/site
+        target: /srv
+        read_only: true
+      - type: volume
+        source: decoy-data
+        target: /data
+        volume: { nocopy: true }
+    tmpfs:
+      - /config:size=8m,uid=65534,gid=65534,mode=0700
+      - /tmp:size=16m,uid=65534,gid=65534,mode=0700
+    ports:
+      # ACME HTTP-01 challenges and http->https redirects.
+      - name: http
+        target: 8080
+        published: "${HTTP_PORT}"
+        host_ip: ${BIND_ADDR}
+        protocol: tcp
+    networks:
+      edge:
+        ipv4_address: ${DECOY_IP}
+    depends_on:
+      decoy-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2020/healthz"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+      start_interval: 1s
+    labels:
+      io.burrowrs.config-hash: ${DECOY_CONFIG_HASH}
+    mem_limit: ${DECOY_MEMORY_LIMIT}
+    pids_limit: 256
+    stop_grace_period: 10s
+
+  # Probes and QR codes. Only ever started on demand by ./burrowrs.
+  tools:
+    image: burrowrs-tools:${BURROWRS_VERSION}
+    build:
+      context: ./tools
+      target: runtime
+    profiles: [tools]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    environment:
+      - BURROWRS_SECRET
+    networks:
+      edge: {}
+    mem_limit: 128m
+    pids_limit: 64
+
+  # Reads live per-user usage from telemt's read-only API, which listens on
+  # 127.0.0.1 inside telemt's network namespace only. ./burrowrs user list
+  # starts it on demand.
+  tools-api:
+    image: burrowrs-tools:${BURROWRS_VERSION}
+    profiles: [tools]
+    user: "65534:65534"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: "no"
+    network_mode: "service:telemt"
+    mem_limit: 128m
+    pids_limit: 64
+
+networks:
+  edge:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${EDGE_SUBNET}
+
+volumes:
+  # Per-user quota counters (no IP addresses). Keep it: deleting it resets
+  # everyone's usage.
+  telemt-data:
+  # Let's Encrypt account and certificates. Keep it: re-issuing too often
+  # hits rate limits.
+  decoy-data:

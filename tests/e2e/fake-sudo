@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# A stand-in for sudo in tests: the real sudo, but keeping BURROWRS_PROJECT so
+# every test stack stays in its own Compose project.
+set -Eeuo pipefail
+exec /usr/bin/sudo --preserve-env=BURROWRS_PROJECT "$@"

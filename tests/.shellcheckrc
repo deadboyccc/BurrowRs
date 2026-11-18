@@ -1,0 +1,7 @@
+# Tests: shellcheck reads the nearest .shellcheckrc, so repeat the root settings.
+external-sources=true
+source-path=SCRIPTDIR
+enable=avoid-nullary-conditions,deprecate-which
+# Tests set config globals that the code under test reads.
+# Each @test runs in its own subshell, so per-test variable changes are intended.
+disable=SC2034,SC2030,SC2031
