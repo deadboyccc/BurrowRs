@@ -255,6 +255,8 @@ cmd_up() {
 	local wait=1
 	[[ ${1-} == --no-wait ]] && wait=0
 	load_config
+	local capacity
+	if capacity=$(config_capacity_warning); then warn "$capacity"; fi
 	require_docker
 	check_project_owner
 	render_all
@@ -931,6 +933,12 @@ cmd_doctor() {
 	fi
 	config_load "$ENV_FILE"
 	if config_validate; then ok "$ENV_FILE is valid ($BURROWRS_MODE mode)"; else problems=$((problems + 1)); fi
+	local capacity
+	if capacity=$(config_capacity_warning); then
+		warn "$capacity"
+	else
+		ok "MAX_CONNECTIONS=$MAX_CONNECTIONS fits in TELEMT_MEMORY_LIMIT=$TELEMT_MEMORY_LIMIT"
+	fi
 	local perms
 	perms=$(stat -c %a "$ENV_FILE" 2>/dev/null || stat -f %Lp "$ENV_FILE")
 	if [[ $perms == 600 || $perms == 400 ]]; then ok ".env permissions $perms"; else

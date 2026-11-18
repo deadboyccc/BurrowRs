@@ -43,7 +43,7 @@
 
 set -Eeuo pipefail
 
-BURROWRS_INSTALLER_REF=v1.0.0 # the release this installer belongs to
+BURROWRS_INSTALLER_REF=v1.0.1 # the release this installer belongs to
 
 say() { printf '%s\n' "$*" >&2; }
 step() {

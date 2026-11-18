@@ -15,11 +15,11 @@ make lint              # shellcheck, shfmt, ruff, compose validation
 
 Set `BURROWRS_E2E_OFFLINE=1` to skip only the checks that need Telegram.
 
-## The test suites (386 tests)
+## The test suites (389 tests)
 
 | Suite | What it proves |
 |---|---|
-| **unit/** (bats, 166) | Validators reject injection; `.env` and `users.tsv` parsing never executes code and refuses malformed lines; secrets, links, user limits, rendering and file permissions are right; `--help` and bad arguments never run commands; privacy defaults hold. |
+| **unit/** (bats, 169) | Validators reject injection; `.env` and `users.tsv` parsing never executes code and refuses malformed lines; secrets, links, user limits, rendering and file permissions are right; `--help` and bad arguments never run commands; privacy defaults hold. |
 | **tools/tests/** (pytest, 146) | The FakeTLS/MTProto client against an independent server implementation of the same protocol; a full Telegram round trip through a fake relay; probe verdicts and time limits against hostile servers; QR output; parsing of telemt's API answers. |
 | **integration/** (37) | The real telemt binary accepts every config variant (and rejects a broken one); Caddy validates every Caddyfile; the compose model is hardened; the host and install scripts plan the right steps in a Debian container. |
 | **e2e/** (37) | Full stacks with real Telegram round trips; hardening as actually run; decoy pages, 404s and redirects; rotation without restarts; crash and hang recovery; per-user mode end to end (live add, disable, expiry, quota that survives a restart, rotate, remove, switching modes); simple mode; `try`; `deploy` end to end; the installer for real, including an upgrade that keeps the secret. |

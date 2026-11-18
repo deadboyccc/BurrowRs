@@ -21,7 +21,7 @@ setup() {
 	assert_line 'tls_emulation = true'
 	assert_line 'tls_front_dir = "/run/telemt/tlsfront"'
 	assert_line 'quota_state_path = "/var/lib/telemt/quota.json"'
-	assert_line 'max_connections = 10000'
+	assert_line 'max_connections = 5000'
 	assert_line 'metrics_listen = "0.0.0.0:3129"'
 	assert_line 'metrics_whitelist = ["127.0.0.0/8", "10.204.47.0/28"]'
 	assert_line 'stun_use = false'

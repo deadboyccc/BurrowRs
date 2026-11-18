@@ -136,9 +136,10 @@ Every command is in **[Usage](docs/USAGE.md)**.
 - **Self-healing.**
   - Crashed or frozen proxies restart themselves.
   - Certificates renew themselves, and security updates install themselves.
-- **Light.** A Rust relay (telemt, a 32.5 MB image) with BBR network tuning. On an idle
-  local trial, the proxy used 5.7 MiB of memory and the decoy website 12.9 MiB.
-- **Tested.** 386 automated tests, including live connections to Telegram.
+- **Light.** A Rust relay (telemt, a 32.5 MB image) with BBR network tuning. On a 1 vCPU,
+  1 GB server it held 3,000 active connections at once with 219 MiB of memory and 17% CPU
+  ([capacity](docs/OPERATIONS.md#capacity-measured)); idle, it uses about 5 MiB.
+- **Tested.** 389 automated tests, including live connections to Telegram.
 
 ## Documentation
 

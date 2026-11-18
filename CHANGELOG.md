@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-11-18
+
+### Fixed
+
+- **A full proxy could take everyone down with it.** The default `MAX_CONNECTIONS` (10000)
+  let telemt accept more connections than its default 512 MiB memory limit can hold: a load
+  test measured 70-75 KiB per connection, so it would run out of memory at about 7,000 and
+  the kernel would kill it, dropping every user at once. The default is now 5000, and `up`
+  and `doctor` warn when `MAX_CONNECTIONS` needs more than `TELEMT_MEMORY_LIMIT` (budget:
+  96 KiB per connection), with the value that fits. Within the limit, telemt refuses the
+  extra connections instead.
+
+### Added
+
+- Measured capacity in [docs/OPERATIONS.md](docs/OPERATIONS.md#capacity-measured): on a
+  1 vCPU, 1 GB server, 3,000 active connections were held at once (219 MiB, 17% CPU), and
+  1,000 round trips ran at 313/s.
+- [Moving from Burrow](docs/DEPLOY.md#coming-from-burrow-keep-every-link) without changing a
+  single link, as done on a live server.
+
 ## [1.0.0] - 2026-11-18
 
 First release. burrowrs is [Burrow](https://github.com/deadboyccc/Burrow) 1.2.0 rewritten on
@@ -78,5 +98,6 @@ mole came along, in a rust-orange scarf with a cog on it.
 - In per-user mode, added users worked at once, and a disabled user, an expired user and a
   1 KiB quota were enforced live, without restarting the proxy container.
 
-[Unreleased]: https://github.com/deadboyccc/BurrowRs/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/deadboyccc/BurrowRs/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/deadboyccc/BurrowRs/compare/v1.0.0...v1.0.1
 [1.0.0]: https://github.com/deadboyccc/BurrowRs/releases/tag/v1.0.0

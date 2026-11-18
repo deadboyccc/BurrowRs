@@ -308,6 +308,41 @@ Certificates renew themselves. Security updates install themselves.
 Quota usage lives in a Docker volume on the old server, so it starts again from zero on
 the new one.
 
+### Coming from Burrow (keep every link)
+
+A Burrow secret is `ee` + a 32-hex key + the domain in hex; burrowrs keeps the key alone. Give
+burrowrs the same key and domain and every link Burrow handed out keeps working. On the
+Burrow server, as root:
+
+1. Put burrowrs next to Burrow, without starting it:
+   `git clone --depth 1 --branch v1.0.1 https://github.com/deadboyccc/BurrowRs.git /opt/burrowrs`
+2. Create its `.env` from Burrow's settings, then give it Burrow's key:
+
+   ```bash
+   cd /opt/burrowrs
+   b() { /opt/burrow/burrow config get "$1"; }
+   ./burrowrs init --domain "$(b DOMAIN)" --link-host "$(b LINK_HOST)" --ipv4 "$(b PUBLIC_IPV4)" \
+     --port "$(b PROXY_PORT)" --http-port "$(b HTTP_PORT)" --quiet
+   secret=$(b SECRET); sed -i "s/^SECRET=.*/SECRET=${secret:2:32}/" .env
+   [ "$(/opt/burrow/burrow link --format secret)" = "$(./burrowrs link --format secret)" ] && echo "same link"
+   ```
+
+3. Bring the decoy site along: `cp -a /opt/burrow/site.local /opt/burrowrs/` (if you have one).
+4. Prepare the host while Burrow still serves (it doesn't restart Docker):
+   `scripts/install-host.sh --dir /opt/burrowrs --ssh-port 22 --ports 80,443`
+5. Optional, saves a certificate request: copy the certificate volume.
+
+   ```bash
+   docker volume create --label com.docker.compose.project=burrowrs \
+     --label com.docker.compose.volume=decoy-data burrowrs_decoy-data
+   docker run --rm -v burrow_decoy-data:/from:ro -v burrowrs_decoy-data:/to busybox cp -a /from/. /to/
+   ```
+
+6. Switch (measured: 6.7 s without service), then test:
+   `/opt/burrow/burrow down && ./burrowrs up && ./burrowrs smoke`
+
+Going back is `./burrowrs down && /opt/burrow/burrow up`; `burrow down` keeps its volumes.
+
 ## M. If the server gets blocked
 
 | Situation | What to do |

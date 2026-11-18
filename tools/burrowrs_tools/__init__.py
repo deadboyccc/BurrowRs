@@ -7,4 +7,4 @@ real wire protocol end to end. The one exception is ``usage``, which reads
 telemt's read-only control API.
 """
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"

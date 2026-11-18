@@ -42,7 +42,7 @@ config_set_defaults() {
 	: "${USER_DEFAULT_QUOTA:=none}"
 	: "${USER_DEFAULT_PERIOD:=none}"
 	: "${USER_DEFAULT_IPS:=3}"
-	: "${MAX_CONNECTIONS:=10000}"
+	: "${MAX_CONNECTIONS:=5000}"
 	: "${TELEMT_MEMORY_LIMIT:=512m}"
 	: "${DECOY_MEMORY_LIMIT:=256m}"
 	: "${LOGGING:=on}"
@@ -133,6 +133,35 @@ ip_in_subnet() {
 	(((ip & mask) == (net & mask))) || return 1
 	local host=$((ip & ~mask & 0xFFFFFFFF)) top=$((~mask & 0xFFFFFFFF))
 	((host > 1 && host < top))
+}
+
+# RAM one client connection can take inside the telemt container. Measured
+# on 2026-11-18 at 70-75 KiB per active connection (client and Telegram
+# sockets, buffers included; 3000 held at once used 219 MiB), plus headroom.
+CONN_BUDGET_KIB=96
+
+# mem_kib 512m -> 524288
+mem_kib() {
+	local n=${1%[kmgKMG]} unit=${1: -1}
+	case ${unit,,} in
+	k) printf '%d\n' "$n" ;;
+	m) printf '%d\n' $((n * 1024)) ;;
+	g) printf '%d\n' $((n * 1024 * 1024)) ;;
+	esac
+}
+
+# config_capacity_warning: when MAX_CONNECTIONS can need more RAM than
+# TELEMT_MEMORY_LIMIT allows, say so (and return 0). Past the memory limit
+# the kernel kills telemt and every user drops at once; within it, telemt
+# simply refuses connections over MAX_CONNECTIONS.
+config_capacity_warning() {
+	is_count "$MAX_CONNECTIONS" && is_mem "$TELEMT_MEMORY_LIMIT" || return 1
+	local need_kib=$((MAX_CONNECTIONS * CONN_BUDGET_KIB)) have_kib fits
+	have_kib=$(mem_kib "$TELEMT_MEMORY_LIMIT")
+	((need_kib > have_kib)) || return 1
+	fits=$((have_kib / CONN_BUDGET_KIB))
+	printf 'MAX_CONNECTIONS=%s can need about %d MiB, but TELEMT_MEMORY_LIMIT=%s: at that load the kernel would kill the proxy and drop everyone. Lower MAX_CONNECTIONS to %d or less, or raise TELEMT_MEMORY_LIMIT (about %d KiB per connection).\n' \
+		"$MAX_CONNECTIONS" $((need_kib / 1024)) "$TELEMT_MEMORY_LIMIT" "$fits" "$CONN_BUDGET_KIB"
 }
 
 _config_errors=()
@@ -282,6 +311,8 @@ ACME_EMAIL=$ACME_EMAIL
 ACME_CA=$ACME_CA
 
 # --- Capacity --------------------------------------------------------------
+# Each connection needs about 96 KiB inside TELEMT_MEMORY_LIMIT (measured 70-75):
+# 512m holds about 5400. A Telegram app keeps 2-4 connections while active.
 MAX_CONNECTIONS=$MAX_CONNECTIONS
 TELEMT_MEMORY_LIMIT=$TELEMT_MEMORY_LIMIT
 DECOY_MEMORY_LIMIT=$DECOY_MEMORY_LIMIT

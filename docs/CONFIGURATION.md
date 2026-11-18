@@ -65,7 +65,7 @@ The settings you're most likely to touch:
 | `ENABLE_IPV6` | `false` | Also accept IPv6 clients, with their real addresses. |
 | `LOGGING` | `on` | `off` keeps no container logs at all (see [Threat model](THREAT-MODEL.md#privacy)). |
 | `LOG_LEVEL` | `silent` | telemt's log level: `silent` (warnings and errors only: refused connections, with the user name and sometimes the client's IP), `normal`, `verbose` or `debug`. |
-| `MAX_CONNECTIONS` | `10000` | Maximum simultaneous client connections. |
+| `MAX_CONNECTIONS` | `5000` | Maximum simultaneous client connections. Budget about 96 KiB of `TELEMT_MEMORY_LIMIT` per connection (measured: 70-75 KiB): `512m` holds about 5,400. Raise the two together; `up` and `doctor` warn when the memory limit can't hold this many. Over the limit telemt refuses new connections; out of memory, the kernel would kill it and drop everyone. |
 
 ### Sponsored channel (`AD_TAG`)
 

@@ -74,6 +74,29 @@ What makes it fast:
   server is 8,192 buckets.
 - **Tuning knobs:** `MAX_CONNECTIONS`, `TELEMT_MEMORY_LIMIT`, `DECOY_MEMORY_LIMIT`.
 
+### Capacity (measured)
+
+Measured on 2026-11-18 on a 1 vCPU (Xeon E-2176G), 961 MiB RAM server running burrowrs
+1.0.0, with load sent from another server over the internet. Every connection did a real
+Telegram exchange (FakeTLS → obfuscated2 → `req_pq_multi` → `resPQ`).
+
+| Test | Result | telemt RAM | telemt CPU (peak, of one core) |
+|---|---|---|---|
+| 1,000 round trips, 100 at a time | 1,000/1,000 ok, 313/s, median 204 ms | 15 MiB | 41% |
+| 1,000 connections held 45 s, active every 15 s | 1,000/1,000 stayed up | 79 MiB | 13% |
+| 2,000 held | 2,000/2,000 stayed up | 150 MiB | 18% |
+| 3,000 held | 2,970/3,000 stayed up (the test client fell behind; telemt logged no failures) | 219 MiB | 17% |
+
+- **Memory is the limit, not CPU,** for chat-type traffic: about 70-75 KiB per connection,
+  buffers included. On this server that is roughly 6,000-7,000 connections before the
+  host runs short of RAM.
+- **Users, not connections:** a Telegram app keeps about 2-4 connections while active, and
+  more while it moves media. So a 1 GB server serves on the order of 1,500-3,000 users
+  online at once for chat. Media-heavy use is bounded by CPU and bandwidth instead; that
+  was not measured (it needs real Telegram accounts).
+- For the same 200-round-trip test, Burrow (mtg) used 58 MiB under load and 50 MiB idle;
+  burrowrs used 7 MiB and 4.6 MiB.
+
 Watch your provider's **monthly data allowance**, and size users' quotas to it.
 
 ## Troubleshooting

@@ -288,3 +288,27 @@ write_env() { printf '%s\n' "$@" >"$ENV_FILE"; }
 	assert_failure
 	assert_output --partial "LOGGING=maybe"
 }
+
+@test "capacity: the default MAX_CONNECTIONS fits in the default memory limit" {
+	stealth_config
+	[[ $MAX_CONNECTIONS == 5000 && $TELEMT_MEMORY_LIMIT == 512m ]]
+	run config_capacity_warning
+	assert_failure
+	assert_output ""
+}
+
+@test "capacity: a connection limit the memory limit cannot hold is called out, with the fix" {
+	stealth_config
+	MAX_CONNECTIONS=8192 TELEMT_MEMORY_LIMIT=512m
+	run config_capacity_warning
+	assert_success
+	assert_output --partial "MAX_CONNECTIONS=8192 can need about 768 MiB"
+	assert_output --partial "Lower MAX_CONNECTIONS to 5461 or less"
+	MAX_CONNECTIONS=8192 TELEMT_MEMORY_LIMIT=1g
+	run config_capacity_warning
+	assert_failure
+}
+
+@test "capacity: mem_kib understands k, m and g" {
+	[[ $(mem_kib 512k) == 512 && $(mem_kib 512m) == 524288 && $(mem_kib 2g) == 2097152 && $(mem_kib 1G) == 1048576 ]]
+}
